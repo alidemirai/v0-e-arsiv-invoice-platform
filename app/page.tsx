@@ -134,11 +134,26 @@ export default function ModernEInvoiceApp() {
   const syncGIBData = async () => {
     setIsSyncingGIB(true)
     try {
-      const [invoicesResult, customersResult, expensesResult, reportsResult] = await Promise.all([
-        fetchInvoicesFromGIB(),
-        fetchCustomersFromGIB(),
-        fetchExpensesFromGIB(),
-        fetchFinancialReportsFromGIB()
+      const token = localStorage.getItem('gib-token')
+      if (!token) {
+        throw new Error('GIB token bulunamadı')
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+
+      const [invoicesRes, customersRes, expensesRes] = await Promise.all([
+        fetch('/api/gib/invoices', { headers }),
+        fetch('/api/gib/customers', { headers }),
+        fetch('/api/gib/expenses', { headers })
+      ])
+
+      const [invoicesResult, customersResult, expensesResult] = await Promise.all([
+        invoicesRes.json(),
+        customersRes.json(),
+        expensesRes.json()
       ])
 
       // Merge GIB invoices with existing
