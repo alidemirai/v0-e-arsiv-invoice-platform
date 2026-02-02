@@ -2,11 +2,11 @@
 
 ## Adım 1: Değişiklikleri GitHub'a Push Edin
 
-```bash
+\`\`\`bash
 git add .
 git commit -m "GIB API integration ve full entegrasyon"
 git push origin main
-```
+\`\`\`
 
 ## Adım 2: Vercel'de Deploy
 

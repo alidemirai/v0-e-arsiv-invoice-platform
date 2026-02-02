@@ -52,14 +52,14 @@ Giriş yaptıktan sonra:
 ## API Endpoints
 
 ### Test Ortamı
-```
+\`\`\`
 https://earsivportaltest.gib.gov.tr/earsiv-services/EarsivWebService
-```
+\`\`\`
 
 ### Production Ortamı
-```
+\`\`\`
 https://earsivportal.gib.gov.tr/earsiv-services/EarsivWebService
-```
+\`\`\`
 
 ## SOAP Servisleri
 
@@ -75,7 +75,7 @@ Uygulama şu SOAP servislerini kullanır:
 ## Veri Yapısı
 
 ### Faturalar
-```typescript
+\`\`\`typescript
 {
   id: string
   ettn: string
@@ -90,10 +90,10 @@ Uygulama şu SOAP servislerini kullanır:
     taxOffice: string
   }
 }
-```
+\`\`\`
 
 ### Müşteriler
-```typescript
+\`\`\`typescript
 {
   id: string
   title: string
@@ -103,7 +103,7 @@ Uygulama şu SOAP servislerini kullanır:
   city: string
   country: string
 }
-```
+\`\`\`
 
 ## Güvenlik Notları
 
