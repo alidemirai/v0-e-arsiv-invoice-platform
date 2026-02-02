@@ -24,8 +24,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: MOCK_INVOICES,
-        count: MOCK_INVOICES.length,
-        message: 'Test modunda örnek faturalar'
+        count: MOCK_INVOICES.length
       })
     }
 

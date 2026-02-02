@@ -160,10 +160,10 @@ export default function ModernEInvoiceApp() {
         expensesRes.json()
       ])
 
-      console.log('[v0] Invoices result:', invoicesResult)
+      console.log('[v0] Invoices result type:', typeof invoicesResult, 'value:', invoicesResult)
 
-      // Merge GIB invoices with existing
-      if (invoicesResult.success && invoicesResult.data) {
+      // Handle invoices
+      if (invoicesResult && typeof invoicesResult === 'object' && 'data' in invoicesResult && Array.isArray(invoicesResult.data)) {
         const existingIds = new Set(invoices.map(inv => inv.id))
         const newInvoices = invoicesResult.data
           .filter((inv: any) => !existingIds.has(inv.id))
@@ -180,11 +180,14 @@ export default function ModernEInvoiceApp() {
           console.log('[v0] Adding', newInvoices.length, 'invoices to state')
           setInvoices(prev => [...newInvoices, ...prev])
         }
+      } else {
+        console.warn('[v0] Invalid invoices response format')
       }
 
-      console.log('[v0] Expenses result:', expensesResult)
-      // Merge GIB expenses with existing
-      if (expensesResult.success && expensesResult.data) {
+      console.log('[v0] Expenses result type:', typeof expensesResult, 'length:', Array.isArray(expensesResult?.data) ? expensesResult.data.length : 'N/A')
+      
+      // Handle expenses
+      if (expensesResult && typeof expensesResult === 'object' && 'data' in expensesResult && Array.isArray(expensesResult.data)) {
         const existingExpenseIds = new Set(expenses.map(exp => exp.id))
         const newExpenses = expensesResult.data
           .filter((exp: any) => !existingExpenseIds.has(exp.id))
@@ -197,8 +200,11 @@ export default function ModernEInvoiceApp() {
             imageUrl: ''
           }))
         if (newExpenses.length > 0) {
+          console.log('[v0] Adding', newExpenses.length, 'expenses to state')
           setExpenses(prev => [...newExpenses, ...prev])
         }
+      } else {
+        console.warn('[v0] Invalid expenses response format')
       }
 
     } catch (error) {
