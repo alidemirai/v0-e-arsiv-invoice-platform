@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, Lock, AlertCircle, CheckCircle2 } from 'lucide-react'
-import { authenticateGIB } from '@/app/actions/gib-auth'
+
 
 interface GIBLoginModalProps {
   onSuccess: () => void
@@ -36,9 +36,21 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
     setSuccess(false)
 
     try {
-      const result = await authenticateGIB(formData)
+      // Call backend API instead of server action
+      const response = await fetch('/api/gib/authenticate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
+
+      const result = await response.json()
 
       if (result.success) {
+        // Store token in localStorage for API calls
+        localStorage.setItem('gib-token', result.token)
+        localStorage.setItem('gib-vkn', formData.vkn)
+        localStorage.setItem('gib-username', formData.username)
+        
         setSuccess(true)
         setTimeout(() => {
           onSuccess()
