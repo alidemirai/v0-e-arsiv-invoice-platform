@@ -31,16 +31,15 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
     const params = new URLSearchParams({
       assession: 'v',
       userid: credentials.username,
-      session: 'Y',
+      session: 'Y', 
       sifre: credentials.password,
-      paression: '1',
+      paession: '1',
     })
     
     const response = await fetch(loginUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
       body: params.toString()
@@ -50,17 +49,35 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
       return { success: false, error: `HTTP ${response.status}: ${response.statusText}` }
     }
 
-    const data = await response.json()
+    const responseText = await response.text()
     
-    if (data.token) {
-      return { success: true, token: data.token }
+    // GIB returns form-encoded data, try to parse it
+    // Format: assoscmd=login&...&token=XXXXX&...
+    const urlParams = new URLSearchParams(responseText)
+    const token = urlParams.get('token')
+    
+    if (token) {
+      return { success: true, token }
     }
     
-    if (data.error) {
-      return { success: false, error: data.error }
+    // Try JSON parsing as fallback
+    try {
+      const jsonData = JSON.parse(responseText)
+      if (jsonData.token) {
+        return { success: true, token: jsonData.token }
+      }
+      if (jsonData.error) {
+        return { success: false, error: jsonData.error }
+      }
+    } catch {
+      // Not JSON, check for error in form data
+      const error = urlParams.get('error') || urlParams.get('hata')
+      if (error) {
+        return { success: false, error }
+      }
     }
 
-    return { success: false, error: 'Token alinamadi' }
+    return { success: false, error: 'Token alinamadi. Kullanici adi veya sifre hatali olabilir.' }
   } catch (error) {
     console.error('[GIB] Auth error:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
@@ -94,22 +111,41 @@ export async function getIssuedInvoices(
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
       body: params.toString()
     })
 
-    const data = await response.json()
+    const responseText = await response.text()
     
-    if (data.data) {
+    // Try to parse as JSON
+    let data: any
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      // Try to extract data from form-encoded response
+      const urlParams = new URLSearchParams(responseText)
+      const dataStr = urlParams.get('data')
+      if (dataStr) {
+        try {
+          data = { data: JSON.parse(dataStr) }
+        } catch {
+          return { success: false, error: 'Yanit parse edilemedi' }
+        }
+      } else {
+        return { success: false, error: 'Gecersiz yanit formati' }
+      }
+    }
+    
+    if (data.data && Array.isArray(data.data)) {
       const invoices = data.data.map((inv: any) => ({
-        id: inv.ettn,
-        invoiceNo: inv.belgeNumarasi || inv.ettn?.substring(0, 16),
-        date: inv.belgeTarihi,
-        customer: inv.aliciUnvanAdSoyad || 'Bilinmeyen',
-        vkn: inv.aliciVknTckn,
-        amount: parseFloat(inv.mpiYok?.split(' ')[0] || '0'),
-        status: inv.onayDurumu === 'Onaylandı' ? 'approved' : 'pending',
+        id: inv.ettn || inv.uuid || `INV-${Date.now()}`,
+        invoiceNo: inv.belgeNumarasi || inv.faturaNo || inv.ettn?.substring(0, 16) || 'N/A',
+        date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+        customer: inv.aliciUnvanAdSoyad || inv.aliciAdi || 'Bilinmeyen',
+        vkn: inv.aliciVknTckn || inv.vkn || '',
+        amount: parseFloat(String(inv.mpiYok || inv.toplamTutar || '0').split(' ')[0]) || 0,
+        status: (inv.onayDurumu === 'Onaylandı' || inv.durum === 'Onaylandi') ? 'approved' : 'pending',
         source: 'gib' as const
       }))
       return { success: true, data: invoices }
@@ -149,22 +185,40 @@ export async function getReceivedInvoices(
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
       body: params.toString()
     })
 
-    const data = await response.json()
+    const responseText = await response.text()
     
-    if (data.data) {
+    // Try to parse as JSON
+    let data: any
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      const urlParams = new URLSearchParams(responseText)
+      const dataStr = urlParams.get('data')
+      if (dataStr) {
+        try {
+          data = { data: JSON.parse(dataStr) }
+        } catch {
+          return { success: false, error: 'Yanit parse edilemedi' }
+        }
+      } else {
+        return { success: false, error: 'Gecersiz yanit formati' }
+      }
+    }
+    
+    if (data.data && Array.isArray(data.data)) {
       const expenses = data.data.map((inv: any) => ({
-        id: inv.ettn,
-        description: inv.saticiUnvanAdSoyad || 'Gider',
-        date: inv.belgeTarihi,
-        amount: parseFloat(inv.mpiYok?.split(' ')[0] || '0'),
+        id: inv.ettn || inv.uuid || `EXP-${Date.now()}`,
+        description: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Gider',
+        date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+        amount: parseFloat(String(inv.mpiYok || inv.toplamTutar || '0').split(' ')[0]) || 0,
         category: 'Fatura',
-        supplier: inv.saticiUnvanAdSoyad,
-        vkn: inv.saticiVknTckn,
+        supplier: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Bilinmeyen',
+        vkn: inv.saticiVknTckn || inv.vkn || '',
         source: 'gib' as const
       }))
       return { success: true, data: expenses }
@@ -197,14 +251,29 @@ export async function getUserInfo(
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
       body: params.toString()
     })
 
-    const data = await response.json()
+    const responseText = await response.text()
     
-    if (data.data) {
+    let data: any
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      const urlParams = new URLSearchParams(responseText)
+      const dataStr = urlParams.get('data')
+      if (dataStr) {
+        try {
+          data = { data: JSON.parse(dataStr) }
+        } catch {
+          return { success: false, error: 'Yanit parse edilemedi' }
+        }
+      }
+    }
+    
+    if (data?.data) {
       return { success: true, data: data.data }
     }
 
