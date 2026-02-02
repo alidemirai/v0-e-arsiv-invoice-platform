@@ -30,7 +30,12 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
     formData.append('sifre2', credentials.password)
     formData.append('parola', '1')
     
-    console.log('[GIB] Login attempt:', loginUrl, 'cmd:', assoscmd)
+    console.log('[GIB] Login attempt:', {
+      url: loginUrl,
+      cmd: assoscmd,
+      user: credentials.username,
+      env: credentials.environment
+    })
     
     const response = await fetch(loginUrl, {
       method: 'POST',
@@ -52,27 +57,50 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
     }
 
     const responseText = await response.text()
-    console.log('[GIB] Response:', responseText.substring(0, 300))
+    console.log('[GIB] Raw response:', responseText)
     
-    // Try JSON parsing
+    // GIB returns different formats, handle all cases
     try {
       const jsonData = JSON.parse(responseText)
+      
+      // Success case - token received
       if (jsonData.token) {
-        console.log('[GIB] Token received!')
+        console.log('[GIB] Token received successfully!')
         return { success: true, token: jsonData.token }
       }
+      
+      // Error cases
       if (jsonData.error) {
-        return { success: false, error: jsonData.error }
+        // Map GIB error codes to Turkish messages
+        const errorMessages: Record<string, string> = {
+          '1': 'Kullanici kodu veya sifre hatali',
+          '2': 'Oturum suresi doldu',
+          '3': 'Yetkisiz erisim',
+          'Hatalı kullanıcı adı veya şifre': 'Kullanici kodu veya sifre hatali',
+          'Session timeout': 'Oturum suresi doldu'
+        }
+        const errorMsg = errorMessages[String(jsonData.error)] || String(jsonData.error)
+        return { success: false, error: errorMsg }
+      }
+      
+      // Check for userid in response which indicates failed login
+      if (jsonData.userid && !jsonData.token) {
+        return { success: false, error: 'Kullanici kodu veya sifre hatali' }
       }
     } catch {
-      // Try regex extraction
+      // Not JSON, try regex extraction
       const tokenMatch = responseText.match(/"token"\s*:\s*"([^"]+)"/)
       if (tokenMatch) {
         return { success: true, token: tokenMatch[1] }
       }
+      
+      // Check if response contains error indicators
+      if (responseText.includes('error') || responseText.includes('hata')) {
+        return { success: false, error: 'GIB baglantisi basarisiz. Lutfen tekrar deneyin.' }
+      }
     }
 
-    return { success: false, error: 'Token alinamadi. Kullanici kodu veya sifre hatali.' }
+    return { success: false, error: 'Beklenmeyen yanit. Lutfen bilgilerinizi kontrol edin.' }
   } catch (error) {
     console.error('[GIB] Auth error:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
