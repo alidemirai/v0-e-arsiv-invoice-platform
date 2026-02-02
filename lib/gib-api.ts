@@ -47,40 +47,56 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
       cache: 'no-store'
     })
 
+    console.log('[GIB-API] Response status:', response.status, response.statusText)
+    
     const text = await response.text()
-    console.log('[GIB-API] Login response:', text.substring(0, 500))
+    console.log('[GIB-API] Raw response:', text)
+
+    // Check for network/server errors
+    if (!response.ok) {
+      return { success: false, error: `GIB sunucu hatasi: ${response.status} - ${response.statusText}`, debug: text }
+    }
 
     // Parse response
     let data: any
     try {
       data = JSON.parse(text)
     } catch {
-      console.error('[GIB-API] Failed to parse response as JSON')
-      return { success: false, error: 'GIB yaniti okunamadi' }
+      console.error('[GIB-API] JSON parse failed, raw:', text)
+      // Sometimes GIB returns HTML error page
+      if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+        return { success: false, error: 'GIB sunucusu erisime kapali. Lutfen daha sonra tekrar deneyin.', debug: 'HTML response received' }
+      }
+      return { success: false, error: 'GIB yaniti okunamadi', debug: text.substring(0, 200) }
     }
 
-    // Check for token
+    console.log('[GIB-API] Parsed response:', JSON.stringify(data))
+
+    // Check for token - SUCCESS CASE
     if (data.token) {
-      console.log('[GIB-API] Token received successfully')
+      console.log('[GIB-API] SUCCESS - Token received!')
       return { success: true, token: data.token }
     }
 
-    // Handle errors
-    if (data.error) {
+    // Handle errors with full debug info
+    if (data.error !== undefined) {
       const errorCode = String(data.error)
-      console.log('[GIB-API] Error code:', errorCode)
+      console.log('[GIB-API] Error from GIB:', errorCode, 'Full data:', JSON.stringify(data))
       
-      // Map error codes to messages
-      if (errorCode === '1' || errorCode.toLowerCase().includes('hatal')) {
-        return { success: false, error: 'Kullanici kodu veya sifre hatali. Interaktif Vergi Dairesi bilgilerinizi kontrol edin.' }
+      // Map error codes
+      const errorMessages: Record<string, string> = {
+        '1': 'Kullanici kodu veya sifre hatali',
+        '2': 'Oturum suresi doldu',
+        '3': 'Yetkisiz erisim',
+        '4': 'Gecersiz istek',
+        '5': 'Sunucu hatasi'
       }
-      if (errorCode === '2') {
-        return { success: false, error: 'Oturum suresi doldu. Tekrar giris yapin.' }
-      }
-      return { success: false, error: `GIB Hatasi: ${errorCode}` }
+      
+      const msg = errorMessages[errorCode] || `GIB Hata Kodu: ${errorCode}`
+      return { success: false, error: msg, debug: JSON.stringify(data) }
     }
 
-    return { success: false, error: 'Token alinamadi. Bilgilerinizi kontrol edin.' }
+    return { success: false, error: 'Beklenmeyen yanit', debug: JSON.stringify(data) }
   } catch (error) {
     console.error('[GIB-API] Network error:', error)
     return { success: false, error: 'GIB sunucusuna baglanilamadi. Internet baglantinizi kontrol edin.' }
