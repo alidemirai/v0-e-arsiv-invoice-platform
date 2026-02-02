@@ -17,13 +17,19 @@ export async function GET(request: NextRequest) {
     const session = JSON.parse(sessionCookie.value)
     const { token, environment } = session
 
-    // Get date range - last 3 months
-    const endDate = new Date().toLocaleDateString('tr-TR')
-    const startDate = (() => {
-      const d = new Date()
-      d.setMonth(d.getMonth() - 3)
-      return d.toLocaleDateString('tr-TR')
-    })()
+    // Format dates as DD/MM/YYYY for GIB API
+    const formatDate = (date: Date) => {
+      const day = String(date.getDate()).padStart(2, '0')
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const year = date.getFullYear()
+      return `${day}/${month}/${year}`
+    }
+    
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    
+    const endDate = formatDate(now)
+    const startDate = formatDate(monthStart)
 
     const result = await getReceivedInvoices(token, environment, startDate, endDate)
 

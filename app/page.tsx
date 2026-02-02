@@ -42,7 +42,7 @@ export default function EBelgeApp() {
   const [error, setError] = useState<string | null>(null)
   const [username, setUsername] = useState('')
   
-  const [loginForm, setLoginForm] = useState({ username: '', password: '', environment: 'production' as 'test' | 'production' })
+  const [loginForm, setLoginForm] = useState({ username: '', password: '', environment: 'test' as 'test' | 'production' })
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
@@ -218,30 +218,37 @@ export default function EBelgeApp() {
                   </div>
 
                   {/* Environment Toggle */}
-                  <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
-                    <span className="text-sm text-muted-foreground">Ortam:</span>
-                    <button
-                      type="button"
-                      onClick={() => setLoginForm({ ...loginForm, environment: 'production' })}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                        loginForm.environment === 'production' 
-                          ? 'bg-primary text-primary-foreground' 
-                          : 'text-muted-foreground hover:bg-muted-foreground/10'
-                      }`}
-                    >
-                      Gercek
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLoginForm({ ...loginForm, environment: 'test' })}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                        loginForm.environment === 'test' 
-                          ? 'bg-accent text-accent-foreground' 
-                          : 'text-muted-foreground hover:bg-muted-foreground/10'
-                      }`}
-                    >
-                      Test
-                    </button>
+                  <div className="p-4 bg-muted rounded-xl space-y-3">
+                    <p className="text-sm font-medium text-foreground">Sunucu Ortami</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLoginForm({ ...loginForm, environment: 'test' })}
+                        className={`py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                          loginForm.environment === 'test' 
+                            ? 'bg-accent text-accent-foreground border-accent' 
+                            : 'bg-background text-muted-foreground border-border hover:border-accent/50'
+                        }`}
+                      >
+                        Test Ortami
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLoginForm({ ...loginForm, environment: 'production' })}
+                        className={`py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                          loginForm.environment === 'production' 
+                            ? 'bg-primary text-primary-foreground border-primary' 
+                            : 'bg-background text-muted-foreground border-border hover:border-primary/50'
+                        }`}
+                      >
+                        Gercek Ortam
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {loginForm.environment === 'test' 
+                        ? 'Test: earsivportaltest.efatura.gov.tr' 
+                        : 'Gercek: earsivportal.efatura.gov.tr'}
+                    </p>
                   </div>
 
                   {error && (
