@@ -66,7 +66,6 @@ export default function EArsivApp() {
 
   // Login form state
   const [loginForm, setLoginForm] = useState({
-    vkn: '',
     username: '',
     password: '',
     environment: 'production' as 'test' | 'production'
@@ -711,20 +710,9 @@ export default function EArsivApp() {
 
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-muted-foreground mb-2 block">VKN / TCKN</label>
+                <label className="text-sm text-muted-foreground mb-2 block">Kullanici Kodu</label>
                 <Input
-                  placeholder="10 veya 11 haneli"
-                  value={loginForm.vkn}
-                  onChange={(e) => setLoginForm({ ...loginForm, vkn: e.target.value })}
-                  maxLength={11}
-                  className="bg-muted/50"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm text-muted-foreground mb-2 block">Kullanici Adi</label>
-                <Input
-                  placeholder="GIB kullanici adiniz"
+                  placeholder="GIB kullanici kodunuz"
                   value={loginForm.username}
                   onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
                   className="bg-muted/50"

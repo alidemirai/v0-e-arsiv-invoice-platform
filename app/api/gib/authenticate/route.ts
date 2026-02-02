@@ -5,26 +5,18 @@ import { cookies } from 'next/headers'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { vkn, username, password, environment = 'production' } = body
+    const { username, password, environment = 'production' } = body
 
     // Validate inputs
-    if (!vkn || !username || !password) {
+    if (!username || !password) {
       return NextResponse.json(
-        { success: false, error: 'VKN, kullanici adi ve sifre gerekli' },
-        { status: 400 }
-      )
-    }
-
-    if (vkn.length !== 10 && vkn.length !== 11) {
-      return NextResponse.json(
-        { success: false, error: 'VKN 10 veya TCKN 11 haneli olmali' },
+        { success: false, error: 'Kullanici kodu ve sifre gerekli' },
         { status: 400 }
       )
     }
 
     // Get real GIB token
     const result = await getGIBToken({
-      vkn,
       username,
       password,
       environment: environment as 'test' | 'production'
@@ -39,12 +31,12 @@ export async function POST(request: NextRequest) {
 
     // Get user info
     const userInfo = await getUserInfo(result.token, environment)
+    const vkn = userInfo.vkn; // Declare vkn variable
 
     // Store session in cookies
     const cookieStore = await cookies()
     const sessionData = {
       token: result.token,
-      vkn,
       username,
       environment,
       userInfo: userInfo.data || null,
