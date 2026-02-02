@@ -1,9 +1,11 @@
-// GIB e-Arsiv Portal API - Real Implementation
-// Based on: https://github.com/f/fatura
+// GIB e-Arsiv Portal API
+// Exact implementation based on: https://github.com/f/fatura
 
-const GIB_ENDPOINTS = {
-  test: 'https://earsivportaltest.efatura.gov.tr',
-  production: 'https://earsivportal.efatura.gov.tr'
+const GIB_TEST_URL = 'https://earsivportaltest.efatura.gov.tr'
+const GIB_PROD_URL = 'https://earsivportal.efatura.gov.tr'
+
+function getBaseUrl(env: 'test' | 'production') {
+  return env === 'test' ? GIB_TEST_URL : GIB_PROD_URL
 }
 
 interface GIBCredentials {
@@ -12,309 +14,217 @@ interface GIBCredentials {
   environment: 'test' | 'production'
 }
 
-// Get authentication token from GIB
+// Login to GIB e-Arsiv Portal
 export async function getGIBToken(credentials: GIBCredentials): Promise<{ success: boolean; token?: string; error?: string }> {
+  const baseUrl = getBaseUrl(credentials.environment)
+  const loginUrl = `${baseUrl}/earsiv-services/assos-login`
+  
+  // Test environment uses 'login', production uses 'anologin'
+  const cmd = credentials.environment === 'test' ? 'login' : 'anologin'
+  
+  // Build request body exactly like f/fatura
+  const body = new URLSearchParams({
+    assoscmd: cmd,
+    rtype: 'json',
+    userid: credentials.username,
+    sifre: credentials.password,
+    sifre2: credentials.password,
+    parola: '1'
+  }).toString()
+
+  console.log('[GIB-API] Login request:', { url: loginUrl, cmd, user: credentials.username })
+
   try {
-    const baseUrl = GIB_ENDPOINTS[credentials.environment]
-    const loginUrl = `${baseUrl}/earsiv-services/assos-login`
-    
-    // Use correct command based on environment
-    const assoscmd = credentials.environment === 'production' ? 'anologin' : 'login'
-    
-    // Build form data using URLSearchParams for proper encoding
-    const formData = new URLSearchParams()
-    formData.append('assoscmd', assoscmd)
-    formData.append('rtype', 'json')
-    formData.append('userid', credentials.username)
-    formData.append('sifre', credentials.password)
-    formData.append('sifre2', credentials.password)
-    formData.append('parola', '1')
-    
-    console.log('[GIB] Login attempt:', loginUrl, 'cmd:', assoscmd)
-    
     const response = await fetch(loginUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'tr-TR,tr;q=0.9',
-        'Origin': baseUrl,
-        'Referer': `${baseUrl}/intragiris.html`
+        'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       },
-      body: formData.toString()
+      body,
+      cache: 'no-store'
     })
 
-    console.log('[GIB] Response status:', response.status)
+    const text = await response.text()
+    console.log('[GIB-API] Login response:', text.substring(0, 500))
 
-    if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` }
-    }
-
-    const responseText = await response.text()
-    console.log('[GIB] Response:', responseText.substring(0, 300))
-    
-    // Try JSON parsing
+    // Parse response
+    let data: any
     try {
-      const jsonData = JSON.parse(responseText)
-      if (jsonData.token) {
-        console.log('[GIB] Token received!')
-        return { success: true, token: jsonData.token }
-      }
-      if (jsonData.error) {
-        return { success: false, error: jsonData.error }
-      }
+      data = JSON.parse(text)
     } catch {
-      // Try regex extraction
-      const tokenMatch = responseText.match(/"token"\s*:\s*"([^"]+)"/)
-      if (tokenMatch) {
-        return { success: true, token: tokenMatch[1] }
-      }
+      console.error('[GIB-API] Failed to parse response as JSON')
+      return { success: false, error: 'GIB yaniti okunamadi' }
     }
 
-    return { success: false, error: 'Token alinamadi. Kullanici kodu veya sifre hatali.' }
+    // Check for token
+    if (data.token) {
+      console.log('[GIB-API] Token received successfully')
+      return { success: true, token: data.token }
+    }
+
+    // Handle errors
+    if (data.error) {
+      const errorCode = String(data.error)
+      console.log('[GIB-API] Error code:', errorCode)
+      
+      // Map error codes to messages
+      if (errorCode === '1' || errorCode.toLowerCase().includes('hatal')) {
+        return { success: false, error: 'Kullanici kodu veya sifre hatali. Interaktif Vergi Dairesi bilgilerinizi kontrol edin.' }
+      }
+      if (errorCode === '2') {
+        return { success: false, error: 'Oturum suresi doldu. Tekrar giris yapin.' }
+      }
+      return { success: false, error: `GIB Hatasi: ${errorCode}` }
+    }
+
+    return { success: false, error: 'Token alinamadi. Bilgilerinizi kontrol edin.' }
   } catch (error) {
-    console.error('[GIB] Auth error:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
+    console.error('[GIB-API] Network error:', error)
+    return { success: false, error: 'GIB sunucusuna baglanilamadi. Internet baglantinizi kontrol edin.' }
   }
 }
 
-// Fetch invoices issued by user
-export async function getIssuedInvoices(
-  token: string, 
+// Generic dispatch request to GIB
+async function gibDispatch(
+  token: string,
   environment: 'test' | 'production',
-  startDate: string, 
+  cmd: string,
+  pageName: string,
+  jp: object
+): Promise<any> {
+  const baseUrl = getBaseUrl(environment)
+  const url = `${baseUrl}/earsiv-services/dispatch`
+  
+  const body = new URLSearchParams({
+    cmd,
+    callid: crypto.randomUUID(),
+    pageName,
+    token,
+    jp: JSON.stringify(jp)
+  }).toString()
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'Accept': 'application/json, text/plain, */*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    },
+    body,
+    cache: 'no-store'
+  })
+
+  const text = await response.text()
+  return JSON.parse(text)
+}
+
+// Parse amount from GIB response
+function parseAmount(value: any): number {
+  if (!value) return 0
+  const str = String(value)
+    .replace(/[^\d.,]/g, '')
+    .replace(/\.(?=.*\.)/g, '') // Keep only last dot
+    .replace(',', '.')
+  return parseFloat(str) || 0
+}
+
+// Get issued invoices (Giden Faturalar)
+export async function getIssuedInvoices(
+  token: string,
+  environment: 'test' | 'production',
+  startDate: string,
   endDate: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
   try {
-    const baseUrl = GIB_ENDPOINTS[environment]
-    const url = `${baseUrl}/earsiv-services/dispatch`
+    console.log('[GIB-API] Fetching issued invoices:', { startDate, endDate })
     
-    const cmd = 'EARSIV_PORTAL_TASLAKLARI_GETIR'
-    const pageName = 'RG_BASITTASLAKLAR'
-    const callid = crypto.randomUUID()
-    const jp = JSON.stringify({
-      baslangic: startDate,
-      bitis: endDate,
-      hangiTip: '5000/30000',
-      table: []
-    })
-    
-    const body = `cmd=${cmd}&callid=${callid}&pageName=${pageName}&token=${token}&jp=${encodeURIComponent(jp)}`
+    const result = await gibDispatch(token, environment, 
+      'EARSIV_PORTAL_TASLAKLARI_GETIR',
+      'RG_BASITTASLAKLAR',
+      { baslangic: startDate, bitis: endDate, hangiTip: '5000/30000', table: [] }
+    )
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'accept': '*/*',
-        'accept-language': 'tr,en-US;q=0.9,en;q=0.8',
-        'cache-control': 'no-cache',
-        'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'pragma': 'no-cache',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin'
-      },
-      body
-    })
+    console.log('[GIB-API] Issued invoices response:', JSON.stringify(result).substring(0, 500))
 
-    const responseText = await response.text()
-    
-    // Try to parse as JSON
-    let data: any
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      return { success: false, error: 'Yanit parse edilemedi: ' + responseText.substring(0, 100) }
-    }
-    
-    if (data.data && Array.isArray(data.data)) {
-      const invoices = data.data.map((inv: any) => {
-        // Parse amount from various possible fields
-        let amount = 0
-        const amountFields = [
-          inv.toplamTutar,
-          inv.mpiYok,
-          inv.vergilerDahilToplam, 
-          inv.vergilerHaricToplam,
-          inv.odenecekTutar,
-          inv.matrah
-        ]
-        
-        for (const field of amountFields) {
-          if (field) {
-            const parsed = parseFloat(
-              String(field)
-                .replace(/[^\d.,]/g, '')
-                .replace(/\.(?=\d{3})/g, '') // Remove thousand separators
-                .replace(',', '.')
-            )
-            if (!isNaN(parsed) && parsed > 0) {
-              amount = parsed
-              break
-            }
-          }
-        }
-
-        return {
-          id: inv.ettn || inv.uuid || `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          invoiceNo: inv.belgeNumarasi || inv.belgeNo || (inv.ettn ? inv.ettn.substring(0, 16) : 'N/A'),
-          date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-          customer: inv.aliciUnvanAdSoyad || inv.aliciAdi || inv.unpiece || 'Bilinmeyen',
-          vkn: inv.aliciVknTckn || inv.vkn || '',
-          amount,
-          status: inv.onayDurumu === 'Onaylandı' ? 'approved' : inv.onayDurumu === 'Onaylanmadı' ? 'sent' : 'draft',
-          source: 'gib' as const
-        }
-      })
+    if (result.data && Array.isArray(result.data)) {
+      const invoices = result.data.map((inv: any) => ({
+        id: inv.ettn || `INV-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        invoiceNo: inv.belgeNumarasi || inv.ettn?.substring(0, 16) || 'N/A',
+        date: inv.belgeTarihi || new Date().toLocaleDateString('tr-TR'),
+        customer: inv.aliciUnvanAdSoyad || inv.aliciAdi || 'Bilinmiyor',
+        vkn: inv.aliciVknTckn || '',
+        amount: parseAmount(inv.mpiYok) || parseAmount(inv.toplamTutar) || parseAmount(inv.vergilerDahilToplam) || 0,
+        status: inv.onayDurumu === 'Onaylandı' ? 'approved' : 'draft'
+      }))
       return { success: true, data: invoices }
     }
 
-    return { success: false, error: data.error || 'Fatura verisi alinamadi' }
+    return { success: false, error: result.error || 'Fatura verisi alinamadi' }
   } catch (error) {
-    console.error('[GIB] Invoice fetch error:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
+    console.error('[GIB-API] Issued invoices error:', error)
+    return { success: false, error: 'Fatura sorgulama hatasi' }
   }
 }
 
-// Fetch invoices issued TO the user (incoming)
+// Get received invoices (Gelen Faturalar / Giderler)
 export async function getReceivedInvoices(
   token: string,
-  environment: 'test' | 'production', 
-  startDate: string, 
+  environment: 'test' | 'production',
+  startDate: string,
   endDate: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
   try {
-    const baseUrl = GIB_ENDPOINTS[environment]
-    const url = `${baseUrl}/earsiv-services/dispatch`
+    console.log('[GIB-API] Fetching received invoices:', { startDate, endDate })
     
-    const cmd = 'EARSIV_PORTAL_ADIMA_KESILEN_BELGELERI_GETIR'
-    const pageName = 'RG_ALICI_TASLAKLAR'
-    const callid = crypto.randomUUID()
-    const jp = JSON.stringify({
-      baslangic: startDate,
-      bitis: endDate,
-      hangiTip: '5000/30000',
-      table: []
-    })
-    
-    const body = `cmd=${cmd}&callid=${callid}&pageName=${pageName}&token=${token}&jp=${encodeURIComponent(jp)}`
+    const result = await gibDispatch(token, environment,
+      'EARSIV_PORTAL_ADIMA_KESILEN_BELGELERI_GETIR',
+      'RG_ALICI_TASLAKLAR',
+      { baslangic: startDate, bitis: endDate, hangiTip: '5000/30000', table: [] }
+    )
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'accept': '*/*',
-        'accept-language': 'tr,en-US;q=0.9,en;q=0.8',
-        'cache-control': 'no-cache',
-        'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'pragma': 'no-cache',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin'
-      },
-      body
-    })
+    console.log('[GIB-API] Received invoices response:', JSON.stringify(result).substring(0, 500))
 
-    const responseText = await response.text()
-    
-    let data: any
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      return { success: false, error: 'Yanit parse edilemedi' }
-    }
-    
-    if (data.data && Array.isArray(data.data)) {
-      const expenses = data.data.map((inv: any) => {
-        // Parse amount from various possible fields
-        let amount = 0
-        const amountFields = [
-          inv.toplamTutar,
-          inv.mpiYok,
-          inv.vergilerDahilToplam,
-          inv.vergilerHaricToplam,
-          inv.odenecekTutar,
-          inv.matrah
-        ]
-        
-        for (const field of amountFields) {
-          if (field) {
-            const parsed = parseFloat(
-              String(field)
-                .replace(/[^\d.,]/g, '')
-                .replace(/\.(?=\d{3})/g, '')
-                .replace(',', '.')
-            )
-            if (!isNaN(parsed) && parsed > 0) {
-              amount = parsed
-              break
-            }
-          }
-        }
-
-        return {
-          id: inv.ettn || inv.uuid || `EXP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          description: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Gider',
-          date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-          amount,
-          category: 'Fatura',
-          supplier: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Bilinmeyen',
-          vkn: inv.saticiVknTckn || inv.vkn || '',
-          source: 'gib' as const
-        }
-      })
+    if (result.data && Array.isArray(result.data)) {
+      const expenses = result.data.map((inv: any) => ({
+        id: inv.ettn || `EXP-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        description: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Gider',
+        date: inv.belgeTarihi || new Date().toLocaleDateString('tr-TR'),
+        amount: parseAmount(inv.mpiYok) || parseAmount(inv.toplamTutar) || parseAmount(inv.vergilerDahilToplam) || 0,
+        category: 'Fatura',
+        supplier: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Bilinmiyor',
+        vkn: inv.saticiVknTckn || ''
+      }))
       return { success: true, data: expenses }
     }
 
-    return { success: false, error: data.error || 'Gider verisi alinamadi' }
+    return { success: false, error: result.error || 'Gider verisi alinamadi' }
   } catch (error) {
-    console.error('[GIB] Expense fetch error:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
+    console.error('[GIB-API] Received invoices error:', error)
+    return { success: false, error: 'Gider sorgulama hatasi' }
   }
 }
 
-// Get user information
+// Get user info
 export async function getUserInfo(
   token: string,
   environment: 'test' | 'production'
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const baseUrl = GIB_ENDPOINTS[environment]
-    const url = `${baseUrl}/earsiv-services/dispatch`
-    
-    const cmd = 'EARSIV_PORTAL_KULLANICI_BILGILERI_GETIR'
-    const pageName = 'RG_KULLANICI'
-    const callid = crypto.randomUUID()
-    
-    const body = `cmd=${cmd}&callid=${callid}&pageName=${pageName}&token=${token}&jp=${encodeURIComponent('{}')}`
+    const result = await gibDispatch(token, environment,
+      'EARSIV_PORTAL_KULLANICI_BILGILERI_GETIR',
+      'RG_KULLANICI',
+      {}
+    )
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'accept': '*/*',
-        'accept-language': 'tr,en-US;q=0.9,en;q=0.8',
-        'cache-control': 'no-cache',
-        'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'pragma': 'no-cache',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin'
-      },
-      body
-    })
-
-    const responseText = await response.text()
-    
-    let data: any
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      return { success: false, error: 'Yanit parse edilemedi' }
+    if (result.data) {
+      return { success: true, data: result.data }
     }
-    
-    if (data?.data) {
-      return { success: true, data: data.data }
-    }
-
     return { success: false, error: 'Kullanici bilgisi alinamadi' }
   } catch (error) {
-    console.error('[GIB] User info error:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
+    console.error('[GIB-API] User info error:', error)
+    return { success: false, error: 'Kullanici bilgisi hatasi' }
   }
 }

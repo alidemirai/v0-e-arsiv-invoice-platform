@@ -42,7 +42,7 @@ export default function EBelgeApp() {
   const [error, setError] = useState<string | null>(null)
   const [username, setUsername] = useState('')
   
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' })
+  const [loginForm, setLoginForm] = useState({ username: '', password: '', environment: 'test' as 'test' | 'production' })
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
@@ -77,7 +77,7 @@ export default function EBelgeApp() {
       const res = await fetch('/api/gib/authenticate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginForm.username, password: loginForm.password, environment: 'production' })
+        body: JSON.stringify({ username: loginForm.username, password: loginForm.password, environment: loginForm.environment })
       })
       const data = await res.json()
       
@@ -217,10 +217,49 @@ export default function EBelgeApp() {
                     </div>
                   </div>
 
+                  {/* Environment Toggle */}
+                  <div className="p-4 bg-muted rounded-xl space-y-3">
+                    <p className="text-sm font-medium text-foreground">Sunucu Ortami</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLoginForm({ ...loginForm, environment: 'test' })}
+                        className={`py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                          loginForm.environment === 'test' 
+                            ? 'bg-accent text-accent-foreground border-accent' 
+                            : 'bg-background text-muted-foreground border-border hover:border-accent/50'
+                        }`}
+                      >
+                        Test Ortami
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLoginForm({ ...loginForm, environment: 'production' })}
+                        className={`py-3 rounded-lg text-sm font-medium transition-all border-2 ${
+                          loginForm.environment === 'production' 
+                            ? 'bg-primary text-primary-foreground border-primary' 
+                            : 'bg-background text-muted-foreground border-border hover:border-primary/50'
+                        }`}
+                      >
+                        Gercek Ortam
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {loginForm.environment === 'test' 
+                        ? 'Test: earsivportaltest.efatura.gov.tr' 
+                        : 'Gercek: earsivportal.efatura.gov.tr'}
+                    </p>
+                  </div>
+
                   {error && (
-                    <div className="bg-destructive/10 text-destructive p-3 rounded-lg text-sm flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4" />
-                      {error}
+                    <div className="bg-destructive/10 text-destructive p-4 rounded-xl text-sm">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium">Giris Basarisiz</p>
+                          <p className="mt-1 opacity-90">{error}</p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -590,47 +629,56 @@ export default function EBelgeApp() {
             </div>
           )}
 
-          {/* MENU/SETTINGS TAB */}
+          {/* MENU/SETTINGS TAB - Dark Theme */}
           {activeTab === 'menu' && (
             <div className="max-w-2xl mx-auto space-y-4">
-              <Card className="border-0 shadow-md">
-                <CardContent className="p-0">
-                  <div className="flex items-center gap-4 p-5 border-b">
-                    <div className="w-14 h-14 rounded-full bg-accent flex items-center justify-center">
-                      <User className="w-7 h-7 text-accent-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-lg">{username}</p>
-                      <p className="text-muted-foreground text-sm">GIB e-Arsiv Kullanicisi</p>
-                    </div>
+              {/* Dark Profile Card */}
+              <div className="bg-[#192230] rounded-2xl overflow-hidden shadow-xl">
+                <div className="p-6 flex items-center gap-4 border-b border-[#3d474e]">
+                  <div className="w-16 h-16 rounded-full bg-[#ffcd00] flex items-center justify-center">
+                    <User className="w-8 h-8 text-[#192230]" />
                   </div>
-                  
-                  {[
-                    { icon: Building2, label: 'Firma Bilgileri', desc: 'Sirket bilgilerinizi yonetin' },
-                    { icon: CreditCard, label: 'Fatura Ayarlari', desc: 'Varsayilan fatura ayarlari' },
-                    { icon: Bell, label: 'Bildirimler', desc: 'Bildirim tercihleriniz' },
-                    { icon: Settings, label: 'Genel Ayarlar', desc: 'Uygulama ayarlari' },
-                  ].map((item) => (
-                    <button key={item.label} className="w-full flex items-center gap-4 p-4 hover:bg-muted transition-colors text-left">
-                      <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                        <item.icon className="w-5 h-5 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium">{item.label}</p>
-                        <p className="text-sm text-muted-foreground">{item.desc}</p>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                    </button>
-                  ))}
-                </CardContent>
-              </Card>
+                  <div>
+                    <p className="font-bold text-xl text-white">{username}</p>
+                    <p className="text-[#8899a6] text-sm">GIB e-Arsiv Kullanicisi</p>
+                  </div>
+                </div>
+                
+                {[
+                  { icon: Building2, label: 'Firma Bilgileri', desc: 'Sirket bilgilerinizi yonetin' },
+                  { icon: CreditCard, label: 'Fatura Ayarlari', desc: 'Varsayilan fatura ayarlari' },
+                  { icon: Bell, label: 'Bildirimler', desc: 'Bildirim tercihleriniz' },
+                  { icon: Settings, label: 'Genel Ayarlar', desc: 'Uygulama ayarlari' },
+                  { icon: Phone, label: 'Destek', desc: 'Yardim ve iletisim' },
+                ].map((item, idx) => (
+                  <button 
+                    key={item.label} 
+                    className={`w-full flex items-center gap-4 p-4 hover:bg-[#2c2f38] transition-colors text-left ${
+                      idx !== 4 ? 'border-b border-[#3d474e]/50' : ''
+                    }`}
+                  >
+                    <div className="w-11 h-11 rounded-xl bg-[#2c2f38] flex items-center justify-center">
+                      <item.icon className="w-5 h-5 text-[#ffcd00]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-white">{item.label}</p>
+                      <p className="text-sm text-[#8899a6]">{item.desc}</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-[#8899a6]" />
+                  </button>
+                ))}
+              </div>
 
-              <Button onClick={handleLogout} variant="outline" className="w-full h-12 text-destructive border-destructive/30 hover:bg-destructive hover:text-white bg-transparent">
-                <LogOut className="w-5 h-5 mr-2" />
+              {/* Logout Button */}
+              <button 
+                onClick={handleLogout} 
+                className="w-full h-14 rounded-xl bg-[#dc3545]/10 border-2 border-[#dc3545]/30 text-[#dc3545] font-medium flex items-center justify-center gap-2 hover:bg-[#dc3545] hover:text-white transition-all"
+              >
+                <LogOut className="w-5 h-5" />
                 Cikis Yap
-              </Button>
+              </button>
 
-              <p className="text-center text-muted-foreground text-sm">e-Fatura Pro v2.0.0</p>
+              <p className="text-center text-muted-foreground text-sm py-4">e-Fatura Pro v2.0.0</p>
             </div>
           )}
         </div>

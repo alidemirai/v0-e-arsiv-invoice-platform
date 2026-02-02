@@ -24,14 +24,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get date range from query params or default to last 3 months
+    // Get date range from query params or default to current month
     const searchParams = request.nextUrl.searchParams
-    const endDate = searchParams.get('endDate') || new Date().toLocaleDateString('tr-TR')
-    const startDate = searchParams.get('startDate') || (() => {
-      const d = new Date()
-      d.setMonth(d.getMonth() - 3)
-      return d.toLocaleDateString('tr-TR')
-    })()
+    
+    // Format dates as DD/MM/YYYY for GIB API
+    const formatDate = (date: Date) => {
+      const day = String(date.getDate()).padStart(2, '0')
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const year = date.getFullYear()
+      return `${day}/${month}/${year}`
+    }
+    
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    
+    const endDate = searchParams.get('endDate') || formatDate(now)
+    const startDate = searchParams.get('startDate') || formatDate(monthStart)
 
     // Fetch real invoices from GIB
     const result = await getIssuedInvoices(token, environment, startDate, endDate)
