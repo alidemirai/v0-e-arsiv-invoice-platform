@@ -127,16 +127,44 @@ export async function getIssuedInvoices(
     }
     
     if (data.data && Array.isArray(data.data)) {
-      const invoices = data.data.map((inv: any) => ({
-        id: inv.ettn || inv.uuid || `INV-${Date.now()}`,
-        invoiceNo: inv.belgeNumarasi || inv.belgeNo || inv.ettn?.substring(0, 16) || 'N/A',
-        date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-        customer: inv.aliciUnvanAdSoyad || inv.aliciAdi || 'Bilinmeyen',
-        vkn: inv.aliciVknTckn || inv.vkn || '',
-        amount: parseFloat(String(inv.toplamTutar || inv.mpiYok || '0').replace(/[^\d.,]/g, '').replace(',', '.')) || 0,
-        status: (inv.onayDurumu === 'Onaylandı' || inv.onayDurumu === 'Onaylanmadı') ? 'approved' : 'pending',
-        source: 'gib' as const
-      }))
+      const invoices = data.data.map((inv: any) => {
+        // Parse amount from various possible fields
+        let amount = 0
+        const amountFields = [
+          inv.toplamTutar,
+          inv.mpiYok,
+          inv.vergilerDahilToplam, 
+          inv.vergilerHaricToplam,
+          inv.odenecekTutar,
+          inv.matrah
+        ]
+        
+        for (const field of amountFields) {
+          if (field) {
+            const parsed = parseFloat(
+              String(field)
+                .replace(/[^\d.,]/g, '')
+                .replace(/\.(?=\d{3})/g, '') // Remove thousand separators
+                .replace(',', '.')
+            )
+            if (!isNaN(parsed) && parsed > 0) {
+              amount = parsed
+              break
+            }
+          }
+        }
+
+        return {
+          id: inv.ettn || inv.uuid || `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          invoiceNo: inv.belgeNumarasi || inv.belgeNo || (inv.ettn ? inv.ettn.substring(0, 16) : 'N/A'),
+          date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+          customer: inv.aliciUnvanAdSoyad || inv.aliciAdi || inv.unpiece || 'Bilinmeyen',
+          vkn: inv.aliciVknTckn || inv.vkn || '',
+          amount,
+          status: inv.onayDurumu === 'Onaylandı' ? 'approved' : inv.onayDurumu === 'Onaylanmadı' ? 'sent' : 'draft',
+          source: 'gib' as const
+        }
+      })
       return { success: true, data: invoices }
     }
 
@@ -194,16 +222,44 @@ export async function getReceivedInvoices(
     }
     
     if (data.data && Array.isArray(data.data)) {
-      const expenses = data.data.map((inv: any) => ({
-        id: inv.ettn || inv.uuid || `EXP-${Date.now()}`,
-        description: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Gider',
-        date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-        amount: parseFloat(String(inv.toplamTutar || inv.mpiYok || '0').replace(/[^\d.,]/g, '').replace(',', '.')) || 0,
-        category: 'Fatura',
-        supplier: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Bilinmeyen',
-        vkn: inv.saticiVknTckn || inv.vkn || '',
-        source: 'gib' as const
-      }))
+      const expenses = data.data.map((inv: any) => {
+        // Parse amount from various possible fields
+        let amount = 0
+        const amountFields = [
+          inv.toplamTutar,
+          inv.mpiYok,
+          inv.vergilerDahilToplam,
+          inv.vergilerHaricToplam,
+          inv.odenecekTutar,
+          inv.matrah
+        ]
+        
+        for (const field of amountFields) {
+          if (field) {
+            const parsed = parseFloat(
+              String(field)
+                .replace(/[^\d.,]/g, '')
+                .replace(/\.(?=\d{3})/g, '')
+                .replace(',', '.')
+            )
+            if (!isNaN(parsed) && parsed > 0) {
+              amount = parsed
+              break
+            }
+          }
+        }
+
+        return {
+          id: inv.ettn || inv.uuid || `EXP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          description: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Gider',
+          date: inv.belgeTarihi || inv.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+          amount,
+          category: 'Fatura',
+          supplier: inv.saticiUnvanAdSoyad || inv.saticiAdi || 'Bilinmeyen',
+          vkn: inv.saticiVknTckn || inv.vkn || '',
+          source: 'gib' as const
+        }
+      })
       return { success: true, data: expenses }
     }
 
