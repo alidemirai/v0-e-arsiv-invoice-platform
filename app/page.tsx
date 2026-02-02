@@ -135,6 +135,8 @@ export default function ModernEInvoiceApp() {
     setIsSyncingGIB(true)
     try {
       const token = localStorage.getItem('gib-token')
+      console.log('[v0] Syncing GIB data with token:', token?.substring(0, 10) + '...')
+      
       if (!token) {
         throw new Error('GIB token bulunamadı')
       }
@@ -144,17 +146,21 @@ export default function ModernEInvoiceApp() {
         'Content-Type': 'application/json'
       }
 
+      console.log('[v0] Fetching from API routes...')
       const [invoicesRes, customersRes, expensesRes] = await Promise.all([
         fetch('/api/gib/invoices', { headers }),
         fetch('/api/gib/customers', { headers }),
         fetch('/api/gib/expenses', { headers })
       ])
 
+      console.log('[v0] API responses received, parsing JSON...')
       const [invoicesResult, customersResult, expensesResult] = await Promise.all([
         invoicesRes.json(),
         customersRes.json(),
         expensesRes.json()
       ])
+
+      console.log('[v0] Invoices result:', invoicesResult)
 
       // Merge GIB invoices with existing
       if (invoicesResult.success && invoicesResult.data) {
@@ -171,10 +177,12 @@ export default function ModernEInvoiceApp() {
             source: 'gib' as const
           }))
         if (newInvoices.length > 0) {
+          console.log('[v0] Adding', newInvoices.length, 'invoices to state')
           setInvoices(prev => [...newInvoices, ...prev])
         }
       }
 
+      console.log('[v0] Expenses result:', expensesResult)
       // Merge GIB expenses with existing
       if (expensesResult.success && expensesResult.data) {
         const existingExpenseIds = new Set(expenses.map(exp => exp.id))
@@ -194,8 +202,9 @@ export default function ModernEInvoiceApp() {
       }
 
     } catch (error) {
-      console.error('GIB sync error:', error)
+      console.error('[v0] GIB sync error:', error)
     } finally {
+      console.log('[v0] GIB sync completed')
       setIsSyncingGIB(false)
     }
   }
