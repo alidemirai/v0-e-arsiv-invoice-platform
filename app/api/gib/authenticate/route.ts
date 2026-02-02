@@ -31,7 +31,6 @@ export async function POST(request: NextRequest) {
 
     // Get user info
     const userInfo = await getUserInfo(result.token, environment)
-    const vkn = userInfo.vkn; // Declare vkn variable
 
     // Store session in cookies
     const cookieStore = await cookies()

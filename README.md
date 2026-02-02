@@ -65,29 +65,29 @@ Türkiye Gelir İdaresi Başkanlığı (GİB) e-Arşiv Portal ile entegre, moder
 ### Adımlar
 
 1. Projeyi klonlayın:
-```bash
+\`\`\`bash
 git clone <repo-url>
 cd e-arsiv-fatura
-```
+\`\`\`
 
 2. Bağımlılıkları yükleyin:
-```bash
+\`\`\`bash
 npm install
 # veya
 yarn install
-```
+\`\`\`
 
 3. Development server'ı başlatın:
-```bash
+\`\`\`bash
 npm run dev
 # veya
 yarn dev
-```
+\`\`\`
 
 4. Tarayıcınızda açın:
-```
+\`\`\`
 http://localhost:3000
-```
+\`\`\`
 
 ## 🔐 GİB Entegrasyonu Kurulumu
 
@@ -128,7 +128,7 @@ Detaylı bilgi için: [GIB-INTEGRATION.md](./GIB-INTEGRATION.md)
 
 ## 🗂️ Proje Yapısı
 
-```
+\`\`\`
 /
 ├── app/
 │   ├── actions/
@@ -143,7 +143,7 @@ Detaylı bilgi için: [GIB-INTEGRATION.md](./GIB-INTEGRATION.md)
 ├── lib/
 │   └── utils.ts              # Utility fonksiyonlar
 └── GIB-INTEGRATION.md        # GİB entegrasyon dokümanı
-```
+\`\`\`
 
 ## 🔒 Güvenlik
 
