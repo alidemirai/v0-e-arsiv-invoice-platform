@@ -1,5 +1,3 @@
-'use server'
-
 // GIB e-Arsiv Portal API - Real Implementation
 // Based on: https://github.com/f/fatura
 
@@ -14,11 +12,6 @@ interface GIBCredentials {
   environment: 'test' | 'production'
 }
 
-interface GIBSession {
-  token: string
-  environment: 'test' | 'production'
-}
-
 // Get authentication token from GIB
 export async function getGIBToken(credentials: GIBCredentials): Promise<{ success: boolean; token?: string; error?: string }> {
   try {
@@ -26,26 +19,30 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
     const loginUrl = `${baseUrl}/earsiv-services/assos-login`
     
     // Use correct command based on environment
-    // "anologin" for production, "login" for test
     const assoscmd = credentials.environment === 'production' ? 'anologin' : 'login'
     
-    // Exact format from f/fatura library
-    const body = `assoscmd=${assoscmd}&rtype=json&userid=${encodeURIComponent(credentials.username)}&sifre=${encodeURIComponent(credentials.password)}&sifre2=${encodeURIComponent(credentials.password)}&parola=1&`
+    // Build form data using URLSearchParams for proper encoding
+    const formData = new URLSearchParams()
+    formData.append('assoscmd', assoscmd)
+    formData.append('rtype', 'json')
+    formData.append('userid', credentials.username)
+    formData.append('sifre', credentials.password)
+    formData.append('sifre2', credentials.password)
+    formData.append('parola', '1')
     
-    console.log('[GIB] Attempting login to:', loginUrl)
+    console.log('[GIB] Login attempt:', loginUrl, 'cmd:', assoscmd)
     
     const response = await fetch(loginUrl, {
       method: 'POST',
       headers: {
-        'accept': '*/*',
-        'accept-language': 'tr,en-US;q=0.9,en;q=0.8',
-        'cache-control': 'no-cache',
-        'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'pragma': 'no-cache',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin'
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'tr-TR,tr;q=0.9',
+        'Origin': baseUrl,
+        'Referer': `${baseUrl}/intragiris.html`
       },
-      body
+      body: formData.toString()
     })
 
     console.log('[GIB] Response status:', response.status)
@@ -55,30 +52,27 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
     }
 
     const responseText = await response.text()
-    console.log('[GIB] Response text:', responseText.substring(0, 200))
+    console.log('[GIB] Response:', responseText.substring(0, 300))
     
-    // Try JSON parsing first (expected format)
+    // Try JSON parsing
     try {
       const jsonData = JSON.parse(responseText)
       if (jsonData.token) {
-        console.log('[GIB] Token received successfully')
+        console.log('[GIB] Token received!')
         return { success: true, token: jsonData.token }
       }
       if (jsonData.error) {
         return { success: false, error: jsonData.error }
       }
     } catch {
-      // Not JSON, check raw response
-      if (responseText.includes('token')) {
-        // Try to extract token from malformed response
-        const tokenMatch = responseText.match(/"token"\s*:\s*"([^"]+)"/)
-        if (tokenMatch) {
-          return { success: true, token: tokenMatch[1] }
-        }
+      // Try regex extraction
+      const tokenMatch = responseText.match(/"token"\s*:\s*"([^"]+)"/)
+      if (tokenMatch) {
+        return { success: true, token: tokenMatch[1] }
       }
     }
 
-    return { success: false, error: 'Token alinamadi. Kullanici adi veya sifre hatali olabilir.' }
+    return { success: false, error: 'Token alinamadi. Kullanici kodu veya sifre hatali.' }
   } catch (error) {
     console.error('[GIB] Auth error:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Baglanti hatasi' }
