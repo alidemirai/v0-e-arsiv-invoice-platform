@@ -1,33 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const MOCK_EXPENSES = [
-  { id: 'E001', description: 'Ofis Malzemeleri', amount: 1250.00, date: '2025-01-10', category: 'Ofis', supplier: 'Ofis Dünyası' },
-  { id: 'E002', description: 'Yazılım Lisansı', amount: 4500.00, date: '2025-01-15', category: 'Yazılım', supplier: 'Microsoft' },
-  { id: 'E003', description: 'Ulaşım Gideri', amount: 850.00, date: '2025-01-18', category: 'Ulaşım', supplier: 'Taksi' },
-  { id: 'E004', description: 'Yemek Faturası', amount: 320.00, date: '2025-01-20', category: 'Yemek', supplier: 'Restoran X' },
-  { id: 'E005', description: 'İnternet Faturası', amount: 750.00, date: '2025-02-01', category: 'İletişim', supplier: 'Türk Telekom' },
-]
+import { getReceivedInvoices } from '@/lib/gib-api'
+import { cookies } from 'next/headers'
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get('authorization')?.replace('Bearer ', '')
-
-    if (!token) {
+    const cookieStore = await cookies()
+    const sessionCookie = cookieStore.get('gib-session')
+    
+    if (!sessionCookie?.value) {
       return NextResponse.json(
-        { success: false, error: 'Token gerekli' },
+        { success: false, error: 'Oturum bulunamadi' },
         { status: 401 }
       )
     }
 
+    const session = JSON.parse(sessionCookie.value)
+    const { token, environment } = session
+
+    // Get date range - last 3 months
+    const endDate = new Date().toLocaleDateString('tr-TR')
+    const startDate = (() => {
+      const d = new Date()
+      d.setMonth(d.getMonth() - 3)
+      return d.toLocaleDateString('tr-TR')
+    })()
+
+    const result = await getReceivedInvoices(token, environment, startDate, endDate)
+
     return NextResponse.json({
-      success: true,
-      data: MOCK_EXPENSES,
-      count: MOCK_EXPENSES.length
+      success: result.success,
+      data: result.data || [],
+      count: result.data?.length || 0,
+      error: result.error
     })
   } catch (error) {
-    console.error('[v0] Expense fetch error:', error)
+    console.error('[API] Expense fetch error:', error)
     return NextResponse.json(
-      { success: false, error: 'Gider verisi çekiş hatası' },
+      { success: false, error: 'Gider verisi cekilemedi' },
       { status: 500 }
     )
   }

@@ -1,78 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const GIB_ENDPOINTS = {
-  test: 'https://earsivportal.efatura.gov.tr/intranet/ws1/Mock/InvoicePortalTestReferance.asmx',
-  production: 'https://earsivtest.efatura.gov.tr/intranet/ws1/Invoice.asmx'
-}
+import { getGIBToken, getUserInfo } from '@/lib/gib-api'
+import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { vkn, username, password, environment } = body
+    const { vkn, username, password, environment = 'production' } = body
 
     // Validate inputs
-    if (!vkn || !username || !password || vkn.length !== 10) {
+    if (!vkn || !username || !password) {
       return NextResponse.json(
-        { success: false, error: 'Geçersiz VKN veya kimlik bilgileri' },
+        { success: false, error: 'VKN, kullanici adi ve sifre gerekli' },
         { status: 400 }
       )
     }
 
-    const soapRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://tempuri.org/">
-  <soap:Body>
-    <tns:Login>
-      <tns:VKN>${vkn}</tns:VKN>
-      <tns:UserId>${username}</tns:UserId>
-      <tns:Password>${password}</tns:Password>
-    </tns:Login>
-  </soap:Body>
-</soap:Envelope>`
+    if (vkn.length !== 10 && vkn.length !== 11) {
+      return NextResponse.json(
+        { success: false, error: 'VKN 10 veya TCKN 11 haneli olmali' },
+        { status: 400 }
+      )
+    }
 
-    const endpoint = GIB_ENDPOINTS[environment as keyof typeof GIB_ENDPOINTS] || GIB_ENDPOINTS.test
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://tempuri.org/Login'
-      },
-      body: soapRequest
+    // Get real GIB token
+    const result = await getGIBToken({
+      vkn,
+      username,
+      password,
+      environment: environment as 'test' | 'production'
     })
 
-    const responseText = await response.text()
-
-    // Check for SOAP fault
-    if (responseText.includes('faultstring')) {
-      const faultMatch = responseText.match(/<faultstring>(.*?)<\/faultstring>/)
-      const errorMsg = faultMatch?.[1] || 'GİB hizmetinde hata oluştu'
+    if (!result.success || !result.token) {
       return NextResponse.json(
-        { success: false, error: errorMsg },
+        { success: false, error: result.error || 'GIB giris basarisiz' },
         { status: 401 }
       )
     }
 
-    // Parse token
-    let token = null
-    const tokenMatch = responseText.match(/<Token>(.*?)<\/Token>/)
-    if (tokenMatch?.[1]) {
-      token = tokenMatch[1]
+    // Get user info
+    const userInfo = await getUserInfo(result.token, environment)
+
+    // Store session in cookies
+    const cookieStore = await cookies()
+    const sessionData = {
+      token: result.token,
+      vkn,
+      username,
+      environment,
+      userInfo: userInfo.data || null,
+      createdAt: Date.now()
     }
 
-    if (!token) {
-      // Fallback to mock token for testing
-      token = 'TEST_' + Buffer.from(`${vkn}:${username}:${Date.now()}`).toString('hex').substring(0, 20)
-    }
+    cookieStore.set('gib-session', JSON.stringify(sessionData), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 2 // 2 hours
+    })
 
     return NextResponse.json({
       success: true,
-      token,
-      message: 'GİB kimlik doğrulama başarılı'
+      token: result.token,
+      userInfo: userInfo.data,
+      message: 'GIB giris basarili'
     })
   } catch (error) {
-    console.error('[v0] GIB API error:', error)
+    console.error('[API] GIB auth error:', error)
     return NextResponse.json(
-      { success: false, error: 'GİB bağlantı hatası' },
+      { success: false, error: 'Sunucu hatasi' },
       { status: 500 }
     )
   }
