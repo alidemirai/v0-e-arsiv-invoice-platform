@@ -73,17 +73,8 @@ export default function EBelgeApp() {
   
   const [loginForm, setLoginForm] = useState({ 
     username: '', 
-    password: '', 
-    proxyUrl: ''
+    password: ''
   })
-  
-  // Load proxy URL from localStorage on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedProxy = localStorage.getItem('gib-proxy-url') || ''
-      setLoginForm(prev => ({ ...prev, proxyUrl: savedProxy }))
-    }
-  }, [])
   
   // Data States
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -133,19 +124,14 @@ export default function EBelgeApp() {
       return
     }
     
-    const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
-    if (!proxyUrl) {
-      setError('Proxy URL gerekli. Ileri Secenekler bolumunden girin.')
-      return
-    }
-    
     setIsLoading(true)
     setError(null)
     
     try {
-      console.log('[v0] Login attempt - proxy:', proxyUrl)
+      console.log('[v0] Login attempt:', loginForm.username)
       
-      const res = await fetch(`${proxyUrl}/api/gib/login`, {
+      // Vercel API'sine giriş yap (proxy yok!)
+      const res = await fetch('/api/gib/authenticate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -156,7 +142,7 @@ export default function EBelgeApp() {
       
       console.log('[v0] Login response status:', res.status)
       const data = await res.json()
-      console.log('[v0] Login response data:', data)
+      console.log('[v0] Login response:', data)
       
       if (data.success && data.token) {
         localStorage.setItem('gib-token', data.token)
@@ -170,7 +156,7 @@ export default function EBelgeApp() {
       }
     } catch (e) {
       console.error('[v0] Login error:', e)
-      setError('Proxy sunucusuna baglanilamadi. Terminal acik ve URL dogru mu?')
+      setError('Giriş başarısız. Lütfen tekrar deneyin.')
     } finally {
       setIsLoading(false)
     }
@@ -191,16 +177,77 @@ export default function EBelgeApp() {
   const fetchData = async () => {
     setIsLoading(true)
     try {
-      const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
       const token = typeof window !== 'undefined' ? localStorage.getItem('gib-token') : null
       
-      console.log('[v0] FetchData - proxy:', proxyUrl, 'token:', !!token)
+      console.log('[v0] FetchData - token exists:', !!token)
 
-      if (!token || !proxyUrl) {
-        console.log('[v0] Token veya proxy URL eksik')
+      if (!token) {
+        console.log('[v0] Token eksik')
         loadLocalData()
         return
       }
+
+      // Vercel API'sine istek at
+      console.log('[v0] Fetching invoices and expenses from Vercel API...')
+      const [invoicesRes, expensesRes] = await Promise.all([
+        fetch('/api/gib/invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        }),
+        fetch('/api/gib/expenses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        })
+      ])
+
+      const [invoicesData, expensesData] = await Promise.all([
+        invoicesRes.json(), 
+        expensesRes.json()
+      ])
+
+      console.log('[v0] Invoices response:', invoicesData)
+      console.log('[v0] Expenses response:', expensesData)
+
+      // Fatura verisi
+      if (invoicesData.data && Array.isArray(invoicesData.data)) {
+        console.log('[v0] Processing', invoicesData.data.length, 'invoices')
+        const formattedInvoices = invoicesData.data.map((inv: any) => ({
+          id: inv.ettn || inv.belgeNumarasi || generateId(),
+          invoiceNo: inv.belgeNumarasi || '',
+          date: inv.belgeTarihi || '',
+          customer: inv.aliciUnvanAdSoyad || '',
+          amount: parseFloat(inv.malHizmetToplamTutari) || 0,
+          kdvAmount: parseFloat(inv.hesaplananKdv) || 0,
+          status: 'approved' as const
+        }))
+        setInvoices(formattedInvoices)
+      }
+
+      // Gider verisi
+      if (expensesData.data && Array.isArray(expensesData.data)) {
+        console.log('[v0] Processing', expensesData.data.length, 'expenses')
+        const formattedExpenses = expensesData.data.map((exp: any) => ({
+          id: exp.ettn || generateId(),
+          description: exp.saticiUnvanAdSoyad || 'Gider',
+          amount: parseFloat(exp.malHizmetToplamTutari) || 0,
+          category: 'diger' as const,
+          date: exp.belgeTarihi || '',
+          isManual: false,
+          month: exp.belgeTarihi ? exp.belgeTarihi.substring(3, 10).split('/').reverse().join('-') : ''
+        }))
+        setGibExpenses(formattedExpenses)
+      }
+
+      console.log('[v0] Data fetch complete')
+      loadLocalData()
+    } catch (e) { 
+      console.error('[v0] Veri cekme hatasi:', e) 
+    } finally { 
+      setIsLoading(false) 
+    }
+  }
 
       // Dogrudan proxy sunucusuna istek at
       console.log('[v0] Fetching invoices and expenses...')
@@ -418,25 +465,6 @@ export default function EBelgeApp() {
                       className="h-12 text-base border-2 focus:border-accent"
                       onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                     />
-                  </div>
-
-                  {/* Proxy URL - Required */}
-                  <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-xl space-y-3 border-2 border-blue-200 dark:border-blue-800">
-                    <p className="text-sm font-medium text-foreground">Proxy Sunucu URL (Zorunlu)</p>
-                    <Input
-                      placeholder="http://192.168.1.164:3001"
-                      value={loginForm.proxyUrl}
-                      onChange={(e) => {
-                        setLoginForm({ ...loginForm, proxyUrl: e.target.value })
-                        if (typeof window !== 'undefined') {
-                          localStorage.setItem('gib-proxy-url', e.target.value)
-                        }
-                      }}
-                      className="h-12 text-base border-2 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Bilgisayarindaki proxy sunucusunun adresi (npm start calistirdigin IP)
-                    </p>
                   </div>
 
                   {error && (
