@@ -74,8 +74,16 @@ export default function EBelgeApp() {
   const [loginForm, setLoginForm] = useState({ 
     username: '', 
     password: '', 
-    environment: 'test' as 'test' | 'production' 
+    proxyUrl: ''
   })
+  
+  // Load proxy URL from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedProxy = localStorage.getItem('gib-proxy-url') || ''
+      setLoginForm(prev => ({ ...prev, proxyUrl: savedProxy }))
+    }
+  }, [])
   
   // Data States
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -106,11 +114,14 @@ export default function EBelgeApp() {
 
   const checkSession = async () => {
     try {
-      const res = await fetch('/api/gib/session')
-      const data = await res.json()
-      if (data.isLoggedIn) {
+      // Check if token exists in localStorage
+      const token = typeof window !== 'undefined' ? localStorage.getItem('gib-token') : null
+      const savedUsername = typeof window !== 'undefined' ? localStorage.getItem('gib-username') : null
+      const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
+      
+      if (token && proxyUrl) {
         setIsLoggedIn(true)
-        setUsername(data.username || '')
+        setUsername(savedUsername || '')
         fetchData()
       }
     } catch (e) { /* no session */ }
@@ -121,22 +132,31 @@ export default function EBelgeApp() {
       setError('Kullanici kodu ve sifre gerekli')
       return
     }
+    
+    const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
+    if (!proxyUrl) {
+      setError('Proxy URL gerekli. Ileri Secenekler bolumunden girin.')
+      return
+    }
+    
     setIsLoading(true)
     setError(null)
     
     try {
-      const res = await fetch('/api/gib/authenticate', {
+      // Dogrudan proxy sunucusuna giris yap
+      const res = await fetch(`${proxyUrl}/api/gib/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           username: loginForm.username, 
-          password: loginForm.password, 
-          environment: loginForm.environment 
+          password: loginForm.password
         })
       })
       const data = await res.json()
       
-      if (data.success) {
+      if (data.success && data.token) {
+        localStorage.setItem('gib-token', data.token)
+        localStorage.setItem('gib-username', loginForm.username)
         setIsLoggedIn(true)
         setUsername(loginForm.username)
         setActiveTab('home')
@@ -145,14 +165,17 @@ export default function EBelgeApp() {
         setError(data.error || 'Giris basarisiz')
       }
     } catch (e) {
-      setError('Baglanti hatasi')
+      setError('Proxy sunucusuna baglanilamadi. Terminal acik mi?')
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleLogout = async () => {
-    try { await fetch('/api/gib/logout', { method: 'POST' }) } catch (e) {}
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('gib-token')
+      localStorage.removeItem('gib-username')
+    }
     setIsLoggedIn(false)
     setUsername('')
     setInvoices([])
@@ -163,30 +186,27 @@ export default function EBelgeApp() {
   const fetchData = async () => {
     setIsLoading(true)
     try {
-      // Get proxy URL from localStorage
       const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
       const token = typeof window !== 'undefined' ? localStorage.getItem('gib-token') : null
       
-      console.log('[v0] Fetching data with proxyUrl:', proxyUrl, 'token:', token ? 'exists' : 'missing')
-
-      if (!token) {
-        console.error('[v0] No token found')
+      if (!token || !proxyUrl) {
+        console.log('[v0] Token veya proxy URL eksik')
+        loadLocalData()
         return
       }
 
-      // POST to API with token and proxy URL
-      const fetchOptions = {
-        method: 'POST' as const,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          token,
-          proxyUrl: proxyUrl || undefined
-        })
-      }
-
+      // Dogrudan proxy sunucusuna istek at (tarayicidan)
       const [invoicesRes, expensesRes] = await Promise.all([
-        fetch('/api/gib/invoices', fetchOptions),
-        fetch('/api/gib/expenses', fetchOptions)
+        fetch(`${proxyUrl}/api/gib/invoices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        }),
+        fetch(`${proxyUrl}/api/gib/expenses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        })
       ])
 
       const [invoicesData, expensesData] = await Promise.all([
@@ -194,32 +214,37 @@ export default function EBelgeApp() {
         expensesRes.json()
       ])
 
-      console.log('[v0] Invoices response:', invoicesData)
-      console.log('[v0] Expenses response:', expensesData)
-
-      if (invoicesData.success && invoicesData.data) {
-        setInvoices(invoicesData.data)
-      } else if (invoicesData.data && Array.isArray(invoicesData.data)) {
-        setInvoices(invoicesData.data)
+      // Fatura verisi
+      if (invoicesData.data && Array.isArray(invoicesData.data)) {
+        const formattedInvoices = invoicesData.data.map((inv: any) => ({
+          id: inv.ettn || inv.belgeNumarasi || generateId(),
+          invoiceNo: inv.belgeNumarasi || '',
+          date: inv.belgeTarihi || '',
+          customer: inv.aliciUnvanAdSoyad || '',
+          amount: parseFloat(inv.malHizmetToplamTutari) || 0,
+          kdvAmount: parseFloat(inv.hesaplananKdv) || 0,
+          status: 'approved' as const
+        }))
+        setInvoices(formattedInvoices)
       }
 
-      if (expensesData.success && expensesData.data) {
-        setGibExpenses(expensesData.data.map((exp: any) => ({
-          ...exp,
+      // Gider verisi
+      if (expensesData.data && Array.isArray(expensesData.data)) {
+        const formattedExpenses = expensesData.data.map((exp: any) => ({
+          id: exp.ettn || generateId(),
+          description: exp.saticiUnvanAdSoyad || 'Gider',
+          amount: parseFloat(exp.malHizmetToplamTutari) || 0,
+          category: 'diger' as const,
+          date: exp.belgeTarihi || '',
           isManual: false,
-          month: exp.date ? `${new Date(exp.date).getFullYear()}-${String(new Date(exp.date).getMonth() + 1).padStart(2, '0')}` : ''
-        })))
-      } else if (expensesData.data && Array.isArray(expensesData.data)) {
-        setGibExpenses(expensesData.data.map((exp: any) => ({
-          ...exp,
-          isManual: false,
-          month: exp.date ? `${new Date(exp.date).getFullYear()}-${String(new Date(exp.date).getMonth() + 1).padStart(2, '0')}` : ''
-        })))
+          month: exp.belgeTarihi ? exp.belgeTarihi.substring(3, 10).split('/').reverse().join('-') : ''
+        }))
+        setGibExpenses(formattedExpenses)
       }
 
       loadLocalData()
     } catch (e) { 
-      console.error('[v0] Fetch error:', e) 
+      console.log('[v0] Veri cekme hatasi:', e) 
     } finally { 
       setIsLoading(false) 
     }
@@ -381,37 +406,22 @@ export default function EBelgeApp() {
                     />
                   </div>
 
-                  {/* Environment Toggle */}
-                  <div className="p-4 bg-muted rounded-xl space-y-3">
-                    <p className="text-sm font-medium text-foreground">Sunucu Ortami</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setLoginForm({ ...loginForm, environment: 'test' })}
-                        className={`py-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                          loginForm.environment === 'test' 
-                            ? 'bg-accent text-accent-foreground border-accent' 
-                            : 'bg-background text-muted-foreground border-border hover:border-accent/50'
-                        }`}
-                      >
-                        Test Ortami
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLoginForm({ ...loginForm, environment: 'production' })}
-                        className={`py-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                          loginForm.environment === 'production' 
-                            ? 'bg-primary text-primary-foreground border-primary' 
-                            : 'bg-background text-muted-foreground border-border hover:border-primary/50'
-                        }`}
-                      >
-                        Gercek Ortam
-                      </button>
-                    </div>
+                  {/* Proxy URL - Required */}
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-xl space-y-3 border-2 border-blue-200 dark:border-blue-800">
+                    <p className="text-sm font-medium text-foreground">Proxy Sunucu URL (Zorunlu)</p>
+                    <Input
+                      placeholder="http://192.168.1.164:3001"
+                      value={loginForm.proxyUrl}
+                      onChange={(e) => {
+                        setLoginForm({ ...loginForm, proxyUrl: e.target.value })
+                        if (typeof window !== 'undefined') {
+                          localStorage.setItem('gib-proxy-url', e.target.value)
+                        }
+                      }}
+                      className="h-12 text-base border-2 focus:border-blue-500"
+                    />
                     <p className="text-xs text-muted-foreground">
-                      {loginForm.environment === 'test' 
-                        ? 'Test: earsivportaltest.efatura.gov.tr' 
-                        : 'Gercek: earsivportal.efatura.gov.tr'}
+                      Bilgisayarindaki proxy sunucusunun adresi (npm start calistirdigin IP)
                     </p>
                   </div>
 
