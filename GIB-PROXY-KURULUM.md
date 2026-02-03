@@ -16,19 +16,19 @@ Henüz kurulu değilse: https://nodejs.org/en/ (LTS sürümü indir)
 ### 2. Proxy Sunucuyu Ayarla
 
 **Windows:**
-```bash
+\`\`\`bash
 # Komut istemi veya PowerShell'i aç ve şu komutları çalıştır:
 cd C:\Users\[KullaniciAdi]\Desktop
 mkdir gib-proxy
 cd gib-proxy
-```
+\`\`\`
 
 **Mac/Linux:**
-```bash
+\`\`\`bash
 cd ~/Desktop
 mkdir gib-proxy
 cd gib-proxy
-```
+\`\`\`
 
 ### 3. Gerekli Dosyaları Kopyala
 
@@ -39,18 +39,18 @@ cd gib-proxy
 ### 4. Bağımlılıkları Yükle
 
 Terminal/Komut İstemi'nde (gib-proxy klasörünün içinde):
-```bash
+\`\`\`bash
 npm install
-```
+\`\`\`
 
 ### 5. Proxy Sunucuyu Başlat
 
-```bash
+\`\`\`bash
 npm start
-```
+\`\`\`
 
 Başarılı olursa şöyle görünecek:
-```
+\`\`\`
 ╔════════════════════════════════════════════╗
 ║     GIB Proxy Server Baslatildi             ║
 ║                                            ║
@@ -58,7 +58,7 @@ Başarılı olursa şöyle görünecek:
 ║  Telefon/Tabletten baglanti icin:         ║
 ║  http://[PC-IP]:3001                      ║
 ╚════════════════════════════════════════════╝
-```
+\`\`\`
 
 ## PC'nin IP Adresini Bul
 

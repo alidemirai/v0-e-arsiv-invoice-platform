@@ -47,10 +47,13 @@ app.post('/api/gib/login', async (req, res) => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
           'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'tr-TR,tr;q=0.9',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Referer': 'https://earsivportal.efatura.gov.tr/',
+          'Origin': 'https://earsivportal.efatura.gov.tr'
         },
-        timeout: 10000
+        timeout: 30000,
+        maxRedirects: 5
       }
     )
 
@@ -205,19 +208,20 @@ app.post('/api/gib/dispatch', async (req, res) => {
     const response = await axios.post(
       `${GIB_URL}/earsiv-services/dispatch`,
       new URLSearchParams({
-        cmd,
+        cmd: 'EARSIV_PORTAL_GELEN_FATURA_LISTESI_GETIR',
         callid: require('crypto').randomUUID(),
-        pageName,
+        pageName: 'RG_GELEN_FATURALAR',
         token,
-        jp: JSON.stringify(jp || {})
+        jp: JSON.stringify({ baslangic_tarihi: '2024-01-01', bitis_tarihi: new Date().toISOString().split('T')[0] })
       }),
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-          'Accept': 'application/json, text/plain, */*',
+          'Accept': 'application/json',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         },
-        timeout: 10000
+        timeout: 30000,
+        maxRedirects: 5
       }
     )
 
