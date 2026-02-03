@@ -1,15 +1,12 @@
 'use client'
 
-import React from "react"
-
-import { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Lock, AlertCircle, CheckCircle2, Info, ExternalLink } from 'lucide-react'
-
+import { Loader2, Lock, AlertCircle, CheckCircle2, Info, ExternalLink, Wifi } from 'lucide-react'
 
 interface GIBLoginModalProps {
   onSuccess: () => void
@@ -20,12 +17,42 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [environment, setEnvironment] = useState<'test' | 'production'>('production')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   
   const [formData, setFormData] = useState({
     username: '',
-    password: ''
+    password: '',
+    proxyUrl: typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') || '' : ''
   })
+
+  const [proxyStatus, setProxyStatus] = useState<'checking' | 'connected' | 'disconnected' | null>(null)
+
+  useEffect(() => {
+    if (formData.proxyUrl) {
+      checkProxyStatus()
+    }
+  }, [formData.proxyUrl])
+
+  const checkProxyStatus = async () => {
+    if (!formData.proxyUrl) {
+      setProxyStatus('disconnected')
+      return
+    }
+
+    setProxyStatus('checking')
+    try {
+      const response = await fetch(`${formData.proxyUrl}/health`, {
+        signal: AbortSignal.timeout(3000)
+      })
+      if (response.ok) {
+        setProxyStatus('connected')
+      } else {
+        setProxyStatus('disconnected')
+      }
+    } catch {
+      setProxyStatus('disconnected')
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,12 +61,18 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
     setSuccess(false)
 
     try {
+      // Save proxy URL if provided
+      if (formData.proxyUrl) {
+        localStorage.setItem('gib-proxy-url', formData.proxyUrl)
+      }
+
       const response = await fetch('/api/gib/authenticate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...formData,
-          environment
+          username: formData.username,
+          password: formData.password,
+          proxyUrl: formData.proxyUrl || undefined
         })
       })
 
@@ -48,7 +81,6 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
       if (result.success) {
         localStorage.setItem('gib-token', result.token)
         localStorage.setItem('gib-username', formData.username)
-        localStorage.setItem('gib-environment', environment)
         
         setSuccess(true)
         setTimeout(() => {
@@ -58,7 +90,7 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
         setError(result.error || 'Giris basarisiz oldu')
       }
     } catch (err) {
-      console.error('[v0] Login error:', err)
+      console.log('[v0] Login error:', err)
       setError('Beklenmeyen bir hata olustu. Lutfen tekrar deneyin.')
     } finally {
       setLoading(false)
@@ -68,6 +100,9 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
     setError(null)
+    if (field === 'proxyUrl') {
+      checkProxyStatus()
+    }
   }
 
   return (
@@ -89,10 +124,10 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
 
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-              <Info className="h-4 w-4 text-amber-600" />
+            <Alert className="border-blue-200 bg-blue-50 text-blue-900">
+              <Info className="h-4 w-4 text-blue-600" />
               <AlertDescription className="text-xs">
-                GIB e-Arsiv islemleri icin Interaktif Vergi Dairesi kullanici kodunuzu ve sifrenizi girin.
+                Yerel proxy sunucusu kullaniyor musunuz? Asagida ayarlayin.
               </AlertDescription>
             </Alert>
 
@@ -111,11 +146,7 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
             )}
 
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Giris Bilgileri</Label>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-sm">Kullanici Kodu</Label>
+              <Label htmlFor="username" className="text-sm">Kullanici Kodu (VKN)</Label>
               <Input
                 id="username"
                 type="text"
@@ -142,32 +173,67 @@ export function GIBLoginModal({ onSuccess, onCancel }: GIBLoginModalProps) {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-sm">Sunucu Ortami</Label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={environment === 'test' ? 'default' : 'outline'}
-                  className={`flex-1 ${environment === 'test' ? '' : 'bg-transparent'}`}
-                  onClick={() => setEnvironment('test')}
-                  disabled={loading || success}
-                >
-                  Test Ortami
-                </Button>
-                <Button
-                  type="button"
-                  variant={environment === 'production' ? 'default' : 'outline'}
-                  className={`flex-1 ${environment === 'production' ? '' : 'bg-transparent'}`}
-                  onClick={() => setEnvironment('production')}
-                  disabled={loading || success}
-                >
-                  Gercek Ortam
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Gercek: earsivportal.efatura.gov.tr
-              </p>
+            <div className="pt-2 border-t">
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full text-sm text-muted-foreground justify-between"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                disabled={loading || success}
+              >
+                <span className="flex items-center gap-2">
+                  <Wifi className="h-4 w-4" />
+                  Ileri Seçenekler
+                </span>
+                <span>{showAdvanced ? '▼' : '▶'}</span>
+              </Button>
             </div>
+
+            {showAdvanced && (
+              <div className="space-y-3 bg-muted/50 p-3 rounded-lg">
+                <div className="space-y-2">
+                  <Label htmlFor="proxyUrl" className="text-sm">Proxy Sunucusu URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="proxyUrl"
+                      type="url"
+                      placeholder="http://192.168.1.100:3001"
+                      value={formData.proxyUrl}
+                      onChange={(e) => handleInputChange('proxyUrl', e.target.value)}
+                      disabled={loading || success}
+                      className="h-10 text-sm"
+                    />
+                    {proxyStatus && (
+                      <div className={`flex items-center px-3 rounded text-sm ${
+                        proxyStatus === 'connected' ? 'bg-green-100 text-green-700' :
+                        proxyStatus === 'checking' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {proxyStatus === 'checking' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : proxyStatus === 'connected' ? (
+                          '✓'
+                        ) : (
+                          '✗'
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Yerel proxy sunucunuzun adresi (PC'nin IP:3001)
+                  </p>
+                </div>
+
+                {formData.proxyUrl && proxyStatus !== 'connected' && (
+                  <Alert className="border-yellow-200 bg-yellow-50 text-yellow-900">
+                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    <AlertDescription className="text-xs">
+                      Proxy sunucusuna erisilemedi. Direkt baglanti denecek.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
           </CardContent>
 
           <CardFooter className="flex flex-col gap-3 pt-2">

@@ -1,11 +1,68 @@
 // GIB e-Arsiv Portal API
 // Based on: https://github.com/f/fatura and official GIB documentation
 
-const GIB_TEST_URL = 'https://earsivportaltest.efatura.gov.tr'
 const GIB_PROD_URL = 'https://earsivportal.efatura.gov.tr'
 
-function getBaseUrl(env: 'test' | 'production') {
-  return env === 'test' ? GIB_TEST_URL : GIB_PROD_URL
+// Credential encryption utilities
+export function encryptCredentials(username: string, password: string): string {
+  try {
+    const data = JSON.stringify({ username, password, ts: Date.now() })
+    return btoa(data) // Simple base64 encoding
+  } catch {
+    return ''
+  }
+}
+
+export function decryptCredentials(encrypted: string): { username: string; password: string } | null {
+  try {
+    const data = JSON.parse(atob(encrypted))
+    return { username: data.username, password: data.password }
+  } catch {
+    return null
+  }
+}
+
+// Save credentials for offline use
+export function saveGIBCredentials(username: string, password: string, token: string) {
+  try {
+    const sessionData = {
+      username,
+      password,
+      token,
+      savedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() // 2 hours
+    }
+    localStorage.setItem('gib-session', JSON.stringify(sessionData))
+  } catch (e) {
+    console.log('[v0] Could not save credentials')
+  }
+}
+
+export function getGIBSession(): { username: string; password: string; token: string } | null {
+  try {
+    const stored = localStorage.getItem('gib-session')
+    if (!stored) return null
+    
+    const session = JSON.parse(stored)
+    if (new Date(session.expiresAt) < new Date()) {
+      localStorage.removeItem('gib-session')
+      return null
+    }
+    
+    return { 
+      username: session.username, 
+      password: session.password, 
+      token: session.token 
+    }
+  } catch {
+    return null
+  }
+}
+
+export function clearGIBSession() {
+  try {
+    localStorage.removeItem('gib-session')
+  } catch {}
 }
 
 interface GIBCredentials {

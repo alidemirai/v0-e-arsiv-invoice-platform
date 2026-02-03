@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
-const GIB_TEST_URL = 'https://earsivportaltest.efatura.gov.tr'
 const GIB_PROD_URL = 'https://earsivportal.efatura.gov.tr'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { username, password, environment = 'production' } = body
+    const { username, password, proxyUrl } = body
 
-    // Validate inputs
     if (!username || !password) {
       return NextResponse.json(
         { success: false, error: 'Kullanici kodu ve sifre gerekli' },
@@ -17,101 +15,56 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const baseUrl = environment === 'test' ? GIB_TEST_URL : GIB_PROD_URL
-    const cmd = environment === 'test' ? 'login' : 'anologin'
-    
-    console.log('[API] GIB auth attempt:', { baseUrl, cmd, username, environment })
+    console.log('[API] GIB auth attempt:', { username, proxyUrl: proxyUrl ? 'using proxy' : 'direct' })
 
-    // Make direct server-side request to GIB
-    const loginUrl = `${baseUrl}/earsiv-services/assos-login`
-    
-    const bodyParams = new URLSearchParams({
-      assoscmd: cmd,
-      rtype: 'json',
-      userid: username,
-      sifre: password,
-      sifre2: password,
-      parola: '1'
-    })
+    let response: Response
+    let loginUrl: string
 
-    const response = await fetch(loginUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Origin': baseUrl,
-        'Referer': `${baseUrl}/intragiris.html`
-      },
-      body: bodyParams.toString(),
-      cache: 'no-store'
-    })
+    // Try to use proxy first if available
+    if (proxyUrl) {
+      console.log('[API] Using proxy server:', proxyUrl)
+      loginUrl = `${proxyUrl}/api/gib/login`
+      
+      try {
+        response = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          signal: AbortSignal.timeout(5000)
+        })
+      } catch (e) {
+        console.error('[API] Proxy error, falling back to direct connection:', e)
+        // Fallback to direct connection
+        return attemptDirectAuth(username, password)
+      }
+    } else {
+      // Direct connection attempt
+      return attemptDirectAuth(username, password)
+    }
 
     const responseText = await response.text()
-    console.log('[API] GIB raw response:', responseText.substring(0, 500))
+    console.log('[API] Response received, status:', response.status)
 
-    // Try to parse JSON
     let data: any
     try {
       data = JSON.parse(responseText)
     } catch {
-      console.error('[API] Failed to parse GIB response as JSON')
-      
-      // Check if HTML response (usually means server error or redirect)
-      if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
-        return NextResponse.json(
-          { success: false, error: 'GIB sunucusu beklenmeyen bir yanit dondu. Lutfen daha sonra tekrar deneyin.' },
-          { status: 502 }
-        )
-      }
-      
+      console.error('[API] Failed to parse response')
       return NextResponse.json(
-        { success: false, error: 'GIB yanitI okunamadi' },
+        { success: false, error: 'Proxy yanitI okunamadi' },
         { status: 502 }
       )
     }
 
-    console.log('[API] GIB parsed response:', JSON.stringify(data).substring(0, 300))
+    if (data.success && data.token) {
+      console.log('[API] Token received successfully')
 
-    // Check for token
-    const token = data.token || data.Token
-    if (token) {
-      console.log('[API] GIB token received successfully')
-
-      // Try to get user info
-      let userInfo = null
-      try {
-        const userInfoResult = await fetch(`${baseUrl}/earsiv-services/dispatch`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            'Accept': 'application/json, text/plain, */*',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          },
-          body: new URLSearchParams({
-            cmd: 'EARSIV_PORTAL_KULLANICI_BILGILERI_GETIR',
-            callid: crypto.randomUUID(),
-            pageName: 'RG_KULLANICI',
-            token: token,
-            jp: '{}'
-          }).toString(),
-          cache: 'no-store'
-        })
-        const userInfoText = await userInfoResult.text()
-        const userInfoData = JSON.parse(userInfoText)
-        userInfo = userInfoData.data || null
-      } catch (e) {
-        console.log('[API] Could not fetch user info:', e)
-      }
-
-      // Store session in cookies
+      // Save session
       const cookieStore = await cookies()
       const sessionData = {
-        token,
+        token: data.token,
         username,
-        environment,
-        userInfo,
+        environment: 'production',
         createdAt: Date.now()
       }
 
@@ -119,47 +72,106 @@ export async function POST(request: NextRequest) {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 60 * 60 * 2 // 2 hours
+        maxAge: 60 * 60 * 2
       })
 
       return NextResponse.json({
         success: true,
-        token,
-        userInfo,
+        token: data.token,
         message: 'GIB giris basarili'
       })
     }
 
-    // Handle error response
-    if (data.error) {
-      const errorCode = String(data.error)
-      console.log('[API] GIB error code:', errorCode)
-      
-      let errorMessage = 'GIB giris basarisiz'
-      
-      if (errorCode === '1' || errorCode.toLowerCase().includes('hatal')) {
-        errorMessage = 'Kullanici kodu veya sifre hatali. Interaktif Vergi Dairesi bilgilerinizi kontrol edin.'
-      } else if (errorCode === '2') {
-        errorMessage = 'Oturum suresi doldu. Tekrar giris yapin.'
-      } else if (errorCode === '3') {
-        errorMessage = 'Hesabiniz kilitlenmis olabilir. ivd.gib.gov.tr uzerinden kontrol edin.'
-      }
-      
+    if (!data.success) {
       return NextResponse.json(
-        { success: false, error: errorMessage },
+        { success: false, error: data.error || 'Giris basarisiz' },
         { status: 401 }
       )
     }
 
     return NextResponse.json(
-      { success: false, error: 'Token alinamadi. Bilgilerinizi kontrol edin.' },
+      { success: false, error: 'Token alinamadi' },
       { status: 401 }
     )
   } catch (error) {
-    console.error('[API] GIB auth error:', error)
+    console.error('[API] Auth error:', error)
     return NextResponse.json(
-      { success: false, error: 'Sunucu hatasi. Lutfen tekrar deneyin.' },
+      { success: false, error: 'Sunucu hatasi' },
       { status: 500 }
+    )
+  }
+}
+
+async function attemptDirectAuth(username: string, password: string): Promise<NextResponse> {
+  try {
+    console.log('[API] Attempting direct connection to GIB')
+    
+    const response = await fetch(`${GIB_PROD_URL}/earsiv-services/assos-login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'tr-TR,tr;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      body: new URLSearchParams({
+        assoscmd: 'anologin',
+        rtype: 'json',
+        userid: username,
+        sifre: password,
+        sifre2: password,
+        parola: '1'
+      }).toString(),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000)
+    })
+
+    const text = await response.text()
+    const data = JSON.parse(text)
+
+    if (data.token) {
+      const cookieStore = await cookies()
+      cookieStore.set('gib-session', JSON.stringify({
+        token: data.token,
+        username,
+        environment: 'production',
+        createdAt: Date.now()
+      }), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 2
+      })
+
+      return NextResponse.json({
+        success: true,
+        token: data.token,
+        message: 'GIB giris basarili'
+      })
+    }
+
+    if (data.error) {
+      const errorMsg = data.error === '1' 
+        ? 'Kullanici kodu veya sifre hatali'
+        : `GIB Hatasi: ${data.error}`
+      return NextResponse.json(
+        { success: false, error: errorMsg },
+        { status: 401 }
+      )
+    }
+
+    return NextResponse.json(
+      { success: false, error: 'GIB\'den yanit alinamadi' },
+      { status: 502 }
+    )
+  } catch (error) {
+    console.error('[API] Direct auth failed:', error)
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'GIB sunucusuna baglanilamadi. Yerel proxy sunucu kullanmayı deneyin.' 
+      },
+      { status: 502 }
     )
   }
 }
