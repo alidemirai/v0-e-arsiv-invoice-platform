@@ -236,20 +236,35 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-app.listen(PORT, () => {
+// Get local IP address
+function getLocalIP() {
+  const os = require('os')
+  const interfaces = os.networkInterfaces()
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address
+      }
+    }
+  }
+  return 'localhost'
+}
+
+// Listen on all interfaces (0.0.0.0) so it's accessible from browser
+app.listen(PORT, '0.0.0.0', () => {
+  const localIP = getLocalIP()
   console.log(`
-╔════════════════════════════════════════════╗
-║     GIB Proxy Server Baslatildi             ║
-║                                            ║
-║  Sunucu: http://localhost:${PORT}          ║
-║                                            ║
-║  Telefon/Tabletten baglanti icin:          ║
-║  http://[PC-IP]:${PORT}                    ║
-║                                            ║
-║  PC IP'nizi ogrenmek icin:                 ║
-║  Windows: ipconfig (IPv4 Address)          ║
-║  Mac/Linux: ifconfig (inet)                ║
-╚════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════╗
+║         GIB Proxy Server Baslatildi                   ║
+╠═══════════════════════════════════════════════════════╣
+║                                                       ║
+║  ONEMLI: Asagidaki URL'yi v0 uygulamasina girin:      ║
+║                                                       ║
+║  >>> http://${localIP}:${PORT} <<<                    ║
+║                                                       ║
+║  Localhost: http://localhost:${PORT}                  ║
+║                                                       ║
+╚═══════════════════════════════════════════════════════╝
   `)
 })
 
