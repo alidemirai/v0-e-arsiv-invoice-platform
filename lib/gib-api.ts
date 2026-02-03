@@ -1,11 +1,68 @@
 // GIB e-Arsiv Portal API
-// Exact implementation based on: https://github.com/f/fatura
+// Based on: https://github.com/f/fatura and official GIB documentation
 
-const GIB_TEST_URL = 'https://earsivportaltest.efatura.gov.tr'
 const GIB_PROD_URL = 'https://earsivportal.efatura.gov.tr'
 
-function getBaseUrl(env: 'test' | 'production') {
-  return env === 'test' ? GIB_TEST_URL : GIB_PROD_URL
+// Credential encryption utilities
+export function encryptCredentials(username: string, password: string): string {
+  try {
+    const data = JSON.stringify({ username, password, ts: Date.now() })
+    return btoa(data) // Simple base64 encoding
+  } catch {
+    return ''
+  }
+}
+
+export function decryptCredentials(encrypted: string): { username: string; password: string } | null {
+  try {
+    const data = JSON.parse(atob(encrypted))
+    return { username: data.username, password: data.password }
+  } catch {
+    return null
+  }
+}
+
+// Save credentials for offline use
+export function saveGIBCredentials(username: string, password: string, token: string) {
+  try {
+    const sessionData = {
+      username,
+      password,
+      token,
+      savedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() // 2 hours
+    }
+    localStorage.setItem('gib-session', JSON.stringify(sessionData))
+  } catch (e) {
+    console.log('[v0] Could not save credentials')
+  }
+}
+
+export function getGIBSession(): { username: string; password: string; token: string } | null {
+  try {
+    const stored = localStorage.getItem('gib-session')
+    if (!stored) return null
+    
+    const session = JSON.parse(stored)
+    if (new Date(session.expiresAt) < new Date()) {
+      localStorage.removeItem('gib-session')
+      return null
+    }
+    
+    return { 
+      username: session.username, 
+      password: session.password, 
+      token: session.token 
+    }
+  } catch {
+    return null
+  }
+}
+
+export function clearGIBSession() {
+  try {
+    localStorage.removeItem('gib-session')
+  } catch {}
 }
 
 interface GIBCredentials {
@@ -17,22 +74,33 @@ interface GIBCredentials {
 // Login to GIB e-Arsiv Portal
 export async function getGIBToken(credentials: GIBCredentials): Promise<{ success: boolean; token?: string; error?: string }> {
   const baseUrl = getBaseUrl(credentials.environment)
-  const loginUrl = `${baseUrl}/earsiv-services/assos-login`
   
-  // Test environment uses 'login', production uses 'anologin'
-  const cmd = credentials.environment === 'test' ? 'login' : 'anologin'
+  // Production uses different login endpoint
+  const isProduction = credentials.environment === 'production'
+  const loginUrl = isProduction 
+    ? `${baseUrl}/earsiv-services/assos-login`
+    : `${baseUrl}/earsiv-services/assos-login`
   
-  // Build request body exactly like f/fatura
-  const body = new URLSearchParams({
+  // Build request body - production uses 'anologin', test uses 'login'
+  const cmd = isProduction ? 'anologin' : 'login'
+  
+  const bodyParams: Record<string, string> = {
     assoscmd: cmd,
     rtype: 'json',
     userid: credentials.username,
     sifre: credentials.password,
     sifre2: credentials.password,
     parola: '1'
-  }).toString()
+  }
+  
+  const body = new URLSearchParams(bodyParams).toString()
 
-  console.log('[GIB-API] Login request:', { url: loginUrl, cmd, user: credentials.username })
+  console.log('[GIB-API] Login attempt:', { 
+    url: loginUrl, 
+    cmd, 
+    user: credentials.username,
+    env: credentials.environment 
+  })
 
   try {
     const response = await fetch(loginUrl, {
@@ -40,7 +108,9 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Origin': baseUrl,
+        'Referer': `${baseUrl}/intragiris.html`,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       },
       body,
@@ -48,42 +118,77 @@ export async function getGIBToken(credentials: GIBCredentials): Promise<{ succes
     })
 
     const text = await response.text()
-    console.log('[GIB-API] Login response:', text.substring(0, 500))
+    console.log('[GIB-API] Raw response:', text.substring(0, 500))
 
     // Parse response
     let data: any
     try {
       data = JSON.parse(text)
     } catch {
-      console.error('[GIB-API] Failed to parse response as JSON')
-      return { success: false, error: 'GIB yaniti okunamadi' }
+      // Sometimes GIB returns HTML on error
+      if (text.includes('DOCTYPE') || text.includes('<html')) {
+        console.error('[GIB-API] Received HTML instead of JSON - likely CORS or redirect issue')
+        return { 
+          success: false, 
+          error: 'GIB sunucusu HTML yaniti dondu. Bu genellikle CORS sorunu veya yanlis endpoint anlamina gelir.' 
+        }
+      }
+      console.error('[GIB-API] Failed to parse response as JSON:', text.substring(0, 200))
+      return { success: false, error: 'GIB yaniti JSON olarak okunamadi' }
     }
 
-    // Check for token
-    if (data.token) {
+    console.log('[GIB-API] Parsed response:', JSON.stringify(data).substring(0, 300))
+
+    // Check for token in various possible locations
+    const token = data.token || data.Token || data.sessionToken
+    if (token) {
       console.log('[GIB-API] Token received successfully')
-      return { success: true, token: data.token }
+      return { success: true, token }
     }
 
-    // Handle errors
+    // Handle error responses
     if (data.error) {
       const errorCode = String(data.error)
-      console.log('[GIB-API] Error code:', errorCode)
+      console.log('[GIB-API] Error received:', errorCode)
       
-      // Map error codes to messages
-      if (errorCode === '1' || errorCode.toLowerCase().includes('hatal')) {
-        return { success: false, error: 'Kullanici kodu veya sifre hatali. Interaktif Vergi Dairesi bilgilerinizi kontrol edin.' }
+      // Map known error codes
+      const errorMessages: Record<string, string> = {
+        '1': 'Kullanici kodu veya sifre hatali. Interaktif Vergi Dairesi bilgilerinizi kontrol edin.',
+        '2': 'Oturum suresi doldu. Tekrar giris yapin.',
+        '3': 'Hesabiniz kilitlenmis olabilir. Lutfen ivd.gib.gov.tr uzerinden kontrol edin.',
+        '4': 'Sistem bakimda. Lutfen daha sonra tekrar deneyin.'
       }
-      if (errorCode === '2') {
-        return { success: false, error: 'Oturum suresi doldu. Tekrar giris yapin.' }
-      }
-      return { success: false, error: `GIB Hatasi: ${errorCode}` }
+      
+      const errorMsg = errorMessages[errorCode] || 
+        (errorCode.toLowerCase().includes('hatal') ? errorMessages['1'] : `GIB Hatasi: ${errorCode}`)
+      
+      return { success: false, error: errorMsg }
     }
 
-    return { success: false, error: 'Token alinamadi. Bilgilerinizi kontrol edin.' }
+    // No token and no error - unexpected response
+    return { 
+      success: false, 
+      error: 'GIB\'den beklenmeyen yanit alindi. Lutfen bilgilerinizi kontrol edin.' 
+    }
   } catch (error) {
     console.error('[GIB-API] Network error:', error)
-    return { success: false, error: 'GIB sunucusuna baglanilamadi. Internet baglantinizi kontrol edin.' }
+    const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata'
+    
+    // Check for common network errors
+    if (errorMessage.includes('CORS') || errorMessage.includes('blocked')) {
+      return { 
+        success: false, 
+        error: 'CORS hatasi: GIB sunucusu bu istegi engelledi. Sunucu tarafli proxy gerekiyor.' 
+      }
+    }
+    if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
+      return { 
+        success: false, 
+        error: 'GIB sunucusuna baglanilamadi. Internet baglantinizi kontrol edin.' 
+      }
+    }
+    
+    return { success: false, error: `Baglanti hatasi: ${errorMessage}` }
   }
 }
 

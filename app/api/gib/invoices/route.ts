@@ -1,6 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getIssuedInvoices } from '@/lib/gib-api'
 import { cookies } from 'next/headers'
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { token, proxyUrl } = body
+
+    if (!token) {
+      return NextResponse.json(
+        { success: false, data: [], error: 'Token gerekli' },
+        { status: 401 }
+      )
+    }
+
+    const baseUrl = proxyUrl || 'http://localhost:3001'
+    
+    console.log('[API] Fetching invoices from proxy:', baseUrl)
+
+    const response = await fetch(`${baseUrl}/api/gib/invoices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+      signal: AbortSignal.timeout(15000)
+    })
+
+    const data = await response.json()
+    console.log('[API] Invoices response:', data)
+
+    return NextResponse.json(data)
+  } catch (error) {
+    console.error('[API] Invoices error:', error)
+    return NextResponse.json(
+      { 
+        success: false, 
+        data: [],
+        error: error instanceof Error ? error.message : 'Fatura verisi alinamamadi'
+      },
+      { status: 500 }
+    )
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,13 +48,14 @@ export async function GET(request: NextRequest) {
     
     if (!sessionCookie?.value) {
       return NextResponse.json(
-        { success: false, error: 'Oturum bulunamadi. Lutfen giris yapin.' },
+        { success: false, error: 'Oturum bulunamadi' },
         { status: 401 }
       )
     }
 
     const session = JSON.parse(sessionCookie.value)
-    const { token, environment } = session
+    const { token } = session
+    const proxyUrl = request.nextUrl.searchParams.get('proxyUrl') || 'http://localhost:3001'
 
     if (!token) {
       return NextResponse.json(
@@ -24,42 +64,21 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get date range from query params or default to current month
-    const searchParams = request.nextUrl.searchParams
-    
-    // Format dates as DD/MM/YYYY for GIB API
-    const formatDate = (date: Date) => {
-      const day = String(date.getDate()).padStart(2, '0')
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const year = date.getFullYear()
-      return `${day}/${month}/${year}`
-    }
-    
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    
-    const endDate = searchParams.get('endDate') || formatDate(now)
-    const startDate = searchParams.get('startDate') || formatDate(monthStart)
+    console.log('[API] GET Invoices - proxyUrl:', proxyUrl)
 
-    // Fetch real invoices from GIB
-    const result = await getIssuedInvoices(token, environment, startDate, endDate)
-
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, error: result.error },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: result.data || [],
-      count: result.data?.length || 0
+    const response = await fetch(`${proxyUrl}/api/gib/invoices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+      signal: AbortSignal.timeout(15000)
     })
+
+    const data = await response.json()
+    return NextResponse.json(data)
   } catch (error) {
-    console.error('[API] Invoice fetch error:', error)
+    console.error('[API] GET Invoices error:', error)
     return NextResponse.json(
-      { success: false, error: 'Fatura verisi cekilemedi' },
+      { success: false, data: [], error: 'Fatura verisi cekilemedi' },
       { status: 500 }
     )
   }
