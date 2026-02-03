@@ -249,68 +249,6 @@ export default function EBelgeApp() {
     }
   }
 
-      // Dogrudan proxy sunucusuna istek at
-      console.log('[v0] Fetching invoices and expenses...')
-      const [invoicesRes, expensesRes] = await Promise.all([
-        fetch(`${proxyUrl}/api/gib/invoices`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token })
-        }),
-        fetch(`${proxyUrl}/api/gib/expenses`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token })
-        })
-      ])
-
-      const [invoicesData, expensesData] = await Promise.all([
-        invoicesRes.json(), 
-        expensesRes.json()
-      ])
-
-      console.log('[v0] Invoices response:', invoicesData)
-      console.log('[v0] Expenses response:', expensesData)
-
-      // Fatura verisi
-      if (invoicesData.data && Array.isArray(invoicesData.data)) {
-        console.log('[v0] Processing', invoicesData.data.length, 'invoices')
-        const formattedInvoices = invoicesData.data.map((inv: any) => ({
-          id: inv.ettn || inv.belgeNumarasi || generateId(),
-          invoiceNo: inv.belgeNumarasi || '',
-          date: inv.belgeTarihi || '',
-          customer: inv.aliciUnvanAdSoyad || '',
-          amount: parseFloat(inv.malHizmetToplamTutari) || 0,
-          kdvAmount: parseFloat(inv.hesaplananKdv) || 0,
-          status: 'approved' as const
-        }))
-        setInvoices(formattedInvoices)
-      }
-
-      // Gider verisi
-      if (expensesData.data && Array.isArray(expensesData.data)) {
-        console.log('[v0] Processing', expensesData.data.length, 'expenses')
-        const formattedExpenses = expensesData.data.map((exp: any) => ({
-          id: exp.ettn || generateId(),
-          description: exp.saticiUnvanAdSoyad || 'Gider',
-          amount: parseFloat(exp.malHizmetToplamTutari) || 0,
-          category: 'diger' as const,
-          date: exp.belgeTarihi || '',
-          isManual: false,
-          month: exp.belgeTarihi ? exp.belgeTarihi.substring(3, 10).split('/').reverse().join('-') : ''
-        }))
-        setGibExpenses(formattedExpenses)
-      }
-
-      console.log('[v0] Data fetch complete')
-      loadLocalData()
-    } catch (e) { 
-      console.error('[v0] Veri cekme hatasi:', e) 
-    } finally { 
-      setIsLoading(false) 
-    }
-  }
-
   const handleInvoiceSubmit = async (data: any) => {
     // In production, this would send to GIB API
     console.log('Invoice data:', data)
