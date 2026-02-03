@@ -143,7 +143,8 @@ export default function EBelgeApp() {
     setError(null)
     
     try {
-      // Dogrudan proxy sunucusuna giris yap
+      console.log('[v0] Login attempt - proxy:', proxyUrl)
+      
       const res = await fetch(`${proxyUrl}/api/gib/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -152,7 +153,10 @@ export default function EBelgeApp() {
           password: loginForm.password
         })
       })
+      
+      console.log('[v0] Login response status:', res.status)
       const data = await res.json()
+      console.log('[v0] Login response data:', data)
       
       if (data.success && data.token) {
         localStorage.setItem('gib-token', data.token)
@@ -160,12 +164,13 @@ export default function EBelgeApp() {
         setIsLoggedIn(true)
         setUsername(loginForm.username)
         setActiveTab('home')
-        fetchData()
+        setTimeout(() => fetchData(), 500)
       } else {
         setError(data.error || 'Giris basarisiz')
       }
     } catch (e) {
-      setError('Proxy sunucusuna baglanilamadi. Terminal acik mi?')
+      console.error('[v0] Login error:', e)
+      setError('Proxy sunucusuna baglanilamadi. Terminal acik ve URL dogru mu?')
     } finally {
       setIsLoading(false)
     }
@@ -189,13 +194,16 @@ export default function EBelgeApp() {
       const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
       const token = typeof window !== 'undefined' ? localStorage.getItem('gib-token') : null
       
+      console.log('[v0] FetchData - proxy:', proxyUrl, 'token:', !!token)
+
       if (!token || !proxyUrl) {
         console.log('[v0] Token veya proxy URL eksik')
         loadLocalData()
         return
       }
 
-      // Dogrudan proxy sunucusuna istek at (tarayicidan)
+      // Dogrudan proxy sunucusuna istek at
+      console.log('[v0] Fetching invoices and expenses...')
       const [invoicesRes, expensesRes] = await Promise.all([
         fetch(`${proxyUrl}/api/gib/invoices`, {
           method: 'POST',
@@ -214,8 +222,12 @@ export default function EBelgeApp() {
         expensesRes.json()
       ])
 
+      console.log('[v0] Invoices response:', invoicesData)
+      console.log('[v0] Expenses response:', expensesData)
+
       // Fatura verisi
       if (invoicesData.data && Array.isArray(invoicesData.data)) {
+        console.log('[v0] Processing', invoicesData.data.length, 'invoices')
         const formattedInvoices = invoicesData.data.map((inv: any) => ({
           id: inv.ettn || inv.belgeNumarasi || generateId(),
           invoiceNo: inv.belgeNumarasi || '',
@@ -230,6 +242,7 @@ export default function EBelgeApp() {
 
       // Gider verisi
       if (expensesData.data && Array.isArray(expensesData.data)) {
+        console.log('[v0] Processing', expensesData.data.length, 'expenses')
         const formattedExpenses = expensesData.data.map((exp: any) => ({
           id: exp.ettn || generateId(),
           description: exp.saticiUnvanAdSoyad || 'Gider',
@@ -242,9 +255,10 @@ export default function EBelgeApp() {
         setGibExpenses(formattedExpenses)
       }
 
+      console.log('[v0] Data fetch complete')
       loadLocalData()
     } catch (e) { 
-      console.log('[v0] Veri cekme hatasi:', e) 
+      console.error('[v0] Veri cekme hatasi:', e) 
     } finally { 
       setIsLoading(false) 
     }
