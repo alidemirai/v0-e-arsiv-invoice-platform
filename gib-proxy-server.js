@@ -16,6 +16,9 @@ app.use(express.urlencoded({ extended: true }))
 
 const GIB_URL = 'https://earsivportal.efatura.gov.tr'
 
+// Store tokens in memory (for this session)
+const sessions = new Map()
+
 // Proxy endpoint for GIB login
 app.post('/api/gib/login', async (req, res) => {
   try {
@@ -56,6 +59,7 @@ app.post('/api/gib/login', async (req, res) => {
 
     if (data.token) {
       console.log('[PROXY] Token acquired successfully')
+      sessions.set(username, { token: data.token, createdAt: Date.now() })
       return res.json({
         success: true,
         token: data.token
@@ -77,7 +81,7 @@ app.post('/api/gib/login', async (req, res) => {
       error: 'GIB\'den yanit alinamadi'
     })
   } catch (error) {
-    console.error('[PROXY] Error:', error.message)
+    console.error('[PROXY] Login error:', error.message)
     res.status(500).json({
       success: false,
       error: error.message || 'Proxy hatasi'
@@ -85,7 +89,106 @@ app.post('/api/gib/login', async (req, res) => {
   }
 })
 
-// Proxy endpoint for GIB dispatch (data fetch)
+// Get invoices from GIB
+app.post('/api/gib/invoices', async (req, res) => {
+  try {
+    const { token } = req.body
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Token gerekli'
+      })
+    }
+
+    console.log('[PROXY] Fetching invoices...')
+
+    const response = await axios.post(
+      `${GIB_URL}/earsiv-services/dispatch`,
+      new URLSearchParams({
+        cmd: 'EARSIV_PORTAL_FATURA_LISTESI_GETIR',
+        callid: require('crypto').randomUUID(),
+        pageName: 'RG_FATURA_LISTESI',
+        token,
+        jp: JSON.stringify({
+          baslangic_tarihi: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+          bitis_tarihi: new Date().toISOString().split('T')[0],
+          hangi_tarafin_kayitlari: '0',
+          earsiv_portal_onaylanan_fatura_listesi: ''
+        })
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 10000
+      }
+    )
+
+    console.log('[PROXY] Invoices response:', response.data)
+    res.json(response.data)
+  } catch (error) {
+    console.error('[PROXY] Invoices fetch error:', error.message)
+    res.json({
+      success: false,
+      data: [],
+      error: error.message
+    })
+  }
+})
+
+// Get expenses from GIB
+app.post('/api/gib/expenses', async (req, res) => {
+  try {
+    const { token } = req.body
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Token gerekli'
+      })
+    }
+
+    console.log('[PROXY] Fetching expenses...')
+
+    const response = await axios.post(
+      `${GIB_URL}/earsiv-services/dispatch`,
+      new URLSearchParams({
+        cmd: 'EARSIV_PORTAL_GELEN_FATURA_LISTESI_GETIR',
+        callid: require('crypto').randomUUID(),
+        pageName: 'RG_GELEN_FATURALAR',
+        token,
+        jp: JSON.stringify({
+          baslangic_tarihi: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+          bitis_tarihi: new Date().toISOString().split('T')[0],
+          hangi_tarafin_kayitlari: '0'
+        })
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 10000
+      }
+    )
+
+    console.log('[PROXY] Expenses response:', response.data)
+    res.json(response.data)
+  } catch (error) {
+    console.error('[PROXY] Expenses fetch error:', error.message)
+    res.json({
+      success: false,
+      data: [],
+      error: error.message
+    })
+  }
+})
+
+// Generic dispatch endpoint
 app.post('/api/gib/dispatch', async (req, res) => {
   try {
     const { token, cmd, pageName, jp } = req.body
