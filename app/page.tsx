@@ -163,27 +163,63 @@ export default function EBelgeApp() {
   const fetchData = async () => {
     setIsLoading(true)
     try {
+      // Get proxy URL from localStorage
+      const proxyUrl = typeof window !== 'undefined' ? localStorage.getItem('gib-proxy-url') : null
+      const token = typeof window !== 'undefined' ? localStorage.getItem('gib-token') : null
+      
+      console.log('[v0] Fetching data with proxyUrl:', proxyUrl, 'token:', token ? 'exists' : 'missing')
+
+      if (!token) {
+        console.error('[v0] No token found')
+        return
+      }
+
+      // POST to API with token and proxy URL
+      const fetchOptions = {
+        method: 'POST' as const,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          token,
+          proxyUrl: proxyUrl || undefined
+        })
+      }
+
       const [invoicesRes, expensesRes] = await Promise.all([
-        fetch('/api/gib/invoices'),
-        fetch('/api/gib/expenses')
+        fetch('/api/gib/invoices', fetchOptions),
+        fetch('/api/gib/expenses', fetchOptions)
       ])
+
       const [invoicesData, expensesData] = await Promise.all([
         invoicesRes.json(), 
         expensesRes.json()
       ])
+
+      console.log('[v0] Invoices response:', invoicesData)
+      console.log('[v0] Expenses response:', expensesData)
+
       if (invoicesData.success && invoicesData.data) {
         setInvoices(invoicesData.data)
+      } else if (invoicesData.data && Array.isArray(invoicesData.data)) {
+        setInvoices(invoicesData.data)
       }
+
       if (expensesData.success && expensesData.data) {
         setGibExpenses(expensesData.data.map((exp: any) => ({
           ...exp,
           isManual: false,
           month: exp.date ? `${new Date(exp.date).getFullYear()}-${String(new Date(exp.date).getMonth() + 1).padStart(2, '0')}` : ''
         })))
+      } else if (expensesData.data && Array.isArray(expensesData.data)) {
+        setGibExpenses(expensesData.data.map((exp: any) => ({
+          ...exp,
+          isManual: false,
+          month: exp.date ? `${new Date(exp.date).getFullYear()}-${String(new Date(exp.date).getMonth() + 1).padStart(2, '0')}` : ''
+        })))
       }
+
       loadLocalData()
     } catch (e) { 
-      console.error('Fetch error:', e) 
+      console.error('[v0] Fetch error:', e) 
     } finally { 
       setIsLoading(false) 
     }
